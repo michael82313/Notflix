@@ -259,24 +259,24 @@ service cloud.firestore {
       allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
 
       match /profiles/{profileId} {
-        allow get: if isValidId(userId) && isValidId(profileId) && isOwner(userId);
-        allow list: if isValidId(userId) && isOwner(userId);
+        allow get: if isValidId(userId) && isValidId(profileId) && (isOwner(userId) || isAdmin());
+        allow list: if isValidId(userId) && (isOwner(userId) || isAdmin());
 
         allow create: if isValidId(userId) && isValidId(profileId) &&
-                         isOwner(userId) &&
-                         incoming().userId == request.auth.uid &&
+                         (isOwner(userId) || isAdmin()) &&
+                         incoming().userId == userId &&
                          incoming().keys().hasAll(['userId', 'name', 'avatarKey', 'isKids', 'preferredGenres', 'language', 'subtitlesEnabled', 'createdAt', 'updatedAt']) &&
                          incoming().keys().hasOnly(['userId', 'name', 'avatarKey', 'isKids', 'preferredGenres', 'language', 'subtitlesEnabled', 'createdAt', 'updatedAt']) &&
                          isValidUserProfile(incoming());
 
         allow update: if isValidId(userId) && isValidId(profileId) &&
-                         isOwner(userId) &&
+                         (isOwner(userId) || isAdmin()) &&
                          isValidUserProfile(incoming()) &&
                          incoming().userId == existing().userId &&
                          incoming().createdAt == existing().createdAt &&
                          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatarKey', 'isKids', 'preferredGenres', 'language', 'subtitlesEnabled', 'updatedAt']);
 
-        allow delete: if isValidId(userId) && isValidId(profileId) && isOwner(userId);
+        allow delete: if isValidId(userId) && isValidId(profileId) && (isOwner(userId) || isAdmin());
 
         match /watchlist/{contentId} {
           allow get: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) && isOwner(userId);

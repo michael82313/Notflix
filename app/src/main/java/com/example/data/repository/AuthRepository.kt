@@ -52,7 +52,12 @@ class AuthRepository(
 
     fun isBootstrappedAdmin(user: FirebaseUser? = auth.currentUser): Boolean {
         if (user == null) return false
-        return user.email.equals(BOOTSTRAPPED_ADMIN_EMAIL, ignoreCase = true) && user.isEmailVerified
+        return isBootstrappedAdminEmail(user.email) && user.isEmailVerified
+    }
+
+    fun isBootstrappedAdminEmail(email: String?): Boolean {
+        if (email.isNullOrBlank()) return false
+        return email.trim().equals(BOOTSTRAPPED_ADMIN_EMAIL, ignoreCase = true)
     }
 
     suspend fun ensureAccountInitialized(): Result<UserAccount> = runCatching {
@@ -64,7 +69,23 @@ class AuthRepository(
                 UserAccount::class.java,
                 DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
             )
-            if (existing != null) return@runCatching existing
+            if (existing != null) {
+                if (isBootstrappedAdmin(user)) {
+                    ensureAdminRecord(user)
+                    if (existing.role != "admin") {
+                        runCatching {
+                            docRef.update(
+                                mapOf(
+                                    "role" to "admin",
+                                    "updatedAt" to FieldValue.serverTimestamp()
+                                )
+                            ).await()
+                        }
+                        return@runCatching existing.copy(role = "admin")
+                    }
+                }
+                return@runCatching existing
+            }
         }
 
         val resolvedName = user.displayName?.takeIf { it.isNotBlank() }

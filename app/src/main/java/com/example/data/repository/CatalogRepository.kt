@@ -547,8 +547,14 @@ class CatalogRepository(
 
     suspend fun setUserAdminRole(targetUser: UserAccount, makeAdmin: Boolean): Result<Unit> = runCatching {
         val adminUid = requireUserId()
+        if (!makeAdmin && targetUser.email.equals(AuthRepository.BOOTSTRAPPED_ADMIN_EMAIL, ignoreCase = true)) {
+            throw IllegalStateException("Primary administrator account cannot be demoted.")
+        }
         val userRef = db.collection("users").document(targetUser.userId)
         val adminRef = db.collection("admins").document(targetUser.userId)
+        val resolvedAdminEmail = targetUser.email.ifBlank {
+            targetUser.phoneNumber?.takeIf { it.isNotBlank() } ?: targetUser.userId
+        }.take(200)
         try {
             userRef.update(
                 mapOf(
@@ -560,7 +566,7 @@ class CatalogRepository(
                 adminRef.set(
                     mapOf(
                         "uid" to targetUser.userId,
-                        "email" to targetUser.email,
+                        "email" to resolvedAdminEmail,
                         "grantedBy" to adminUid,
                         "createdAt" to FieldValue.serverTimestamp()
                     )
@@ -568,6 +574,29 @@ class CatalogRepository(
             } else {
                 adminRef.delete().await()
             }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.UPDATE, userRef.path)
+            throw e
+        }
+    }
+
+    suspend fun setUserSuspended(targetUser: UserAccount, suspended: Boolean): Result<Unit> = runCatching {
+        val adminUid = requireUserId()
+        if (suspended && (targetUser.userId == adminUid ||
+                targetUser.email.equals(AuthRepository.BOOTSTRAPPED_ADMIN_EMAIL, ignoreCase = true))
+        ) {
+            throw IllegalStateException("You cannot suspend your own or primary administrator account.")
+        }
+        val userRef = db.collection("users").document(targetUser.userId)
+        try {
+            userRef.update(
+                mapOf(
+                    "isSuspended" to suspended,
+                    "updatedAt" to FieldValue.serverTimestamp()
+                )
+            ).await()
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {

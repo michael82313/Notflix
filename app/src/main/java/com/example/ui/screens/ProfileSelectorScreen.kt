@@ -27,7 +27,9 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material3.AlertDialog
@@ -68,6 +70,7 @@ import com.example.ui.components.VeloraLogo
 import com.example.ui.theme.VeloraBackground
 import com.example.ui.theme.VeloraCrimson
 import com.example.ui.theme.VeloraError
+import com.example.ui.theme.VeloraGold
 import com.example.ui.theme.VeloraOnBackground
 import com.example.ui.theme.VeloraOnSurfaceMuted
 import com.example.ui.theme.VeloraOutline
@@ -78,7 +81,11 @@ import com.example.ui.theme.VeloraSurfaceElevated
 fun ProfileSelectorScreen(
     profilesState: UiState<List<UserProfile>>,
     genres: List<Genre>,
+    isAdmin: Boolean = false,
+    accountIdentifier: String? = null,
     onSelectProfile: (UserProfile) -> Unit,
+    onOpenAdminDashboard: () -> Unit = {},
+    onSignOut: () -> Unit = {},
     onCreateProfile: (name: String, avatarKey: String, isKids: Boolean, genres: List<String>) -> Unit,
     onUpdateProfile: (profileId: String, name: String, avatarKey: String, isKids: Boolean, genres: List<String>, language: String, subtitles: Boolean) -> Unit,
     onDeleteProfile: (String) -> Unit
@@ -110,21 +117,47 @@ fun ProfileSelectorScreen(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 VeloraLogo()
-                TextButton(
-                    onClick = { editMode = !editMode },
-                    modifier = Modifier.testTag("toggle_edit_profiles_button")
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Filled.Edit,
-                        contentDescription = null,
-                        modifier = Modifier.size(18.dp),
-                        tint = if (editMode) VeloraCrimson else VeloraOnBackground
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = if (editMode) "Done" else "Manage",
-                        color = if (editMode) VeloraCrimson else VeloraOnBackground
-                    )
+                    if (isAdmin) {
+                        OutlinedButton(
+                            onClick = onOpenAdminDashboard,
+                            border = BorderStroke(1.dp, VeloraGold.copy(alpha = 0.65f)),
+                            colors = ButtonDefaults.outlinedButtonColors(
+                                containerColor = VeloraGold.copy(alpha = 0.12f),
+                                contentColor = VeloraGold
+                            ),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                            modifier = Modifier.testTag("profile_selector_admin_button")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.AdminPanelSettings,
+                                contentDescription = "Admin Dashboard",
+                                modifier = Modifier.size(16.dp),
+                                tint = VeloraGold
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text("Admin", color = VeloraGold, maxLines = 1)
+                        }
+                    }
+                    TextButton(
+                        onClick = { editMode = !editMode },
+                        modifier = Modifier.testTag("toggle_edit_profiles_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Edit,
+                            contentDescription = null,
+                            modifier = Modifier.size(18.dp),
+                            tint = if (editMode) VeloraCrimson else VeloraOnBackground
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = if (editMode) "Done" else "Manage",
+                            color = if (editMode) VeloraCrimson else VeloraOnBackground
+                        )
+                    }
                 }
             }
 
@@ -252,6 +285,33 @@ fun ProfileSelectorScreen(
                             }
                         }
                     }
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = accountIdentifier?.takeIf { it.isNotBlank() }?.let { "Signed in as $it" } ?: "Notflix Account",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = VeloraOnSurfaceMuted
+                )
+                TextButton(
+                    onClick = onSignOut,
+                    modifier = Modifier.testTag("profile_selector_sign_out_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Logout,
+                        contentDescription = null,
+                        tint = VeloraError,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("Sign Out", color = VeloraError)
                 }
             }
         }

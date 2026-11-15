@@ -63,6 +63,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.CatalogRepository
+import com.example.data.repository.MediaUploadRepository
 import com.example.data.repository.ProfileRepository
 import com.example.data.repository.SubscriptionRepository
 import com.example.data.repository.authStateFlow
@@ -70,6 +71,20 @@ import com.example.ui.components.VeloraLogo
 import com.example.ui.navigation.VeloraRoute
 import com.example.ui.screens.AdminDashboardScreen
 import com.example.ui.screens.DetailsScreen
+import com.example.ui.theme.VeloraBackground
+import com.example.ui.theme.VeloraCrimson
+import com.example.ui.theme.VeloraError
+import com.example.ui.theme.VeloraOnBackground
+import com.example.ui.theme.VeloraOnSurfaceMuted
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.Alignment
 import com.example.ui.screens.ExploreScreen
 import com.example.ui.screens.HomeScreen
 import com.example.ui.screens.MyListAndActivityScreen
@@ -140,6 +155,8 @@ private fun AuthenticatedVeloraApp(
     val scope = rememberCoroutineScope()
     val credentialManager = remember { CredentialManager.create(context) }
 
+    val navController = rememberNavController()
+
     val viewModel: VeloraViewModel = viewModel(
         key = currentUserId,
         factory = viewModelFactory {
@@ -152,7 +169,8 @@ private fun AuthenticatedVeloraApp(
                     profileRepository = ProfileRepository(db, appContext = app),
                     catalogRepository = CatalogRepository(db),
                     subscriptionRepository = SubscriptionRepository(db),
-                    currentUserId = currentUserId
+                    currentUserId = currentUserId,
+                    mediaUploadRepository = MediaUploadRepository(app)
                 )
             }
         }
@@ -187,6 +205,7 @@ private fun AuthenticatedVeloraApp(
     val exploreSort by viewModel.exploreSort.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSavingCatalog by viewModel.isSavingCatalog.collectAsStateWithLifecycle()
+    val mediaUploadStates by viewModel.mediaUploadStates.collectAsStateWithLifecycle()
     val isLoadingSeriesStructure by viewModel.isLoadingSeriesStructure.collectAsStateWithLifecycle()
     val editingSeriesSeasons by viewModel.editingSeriesSeasons.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
@@ -199,11 +218,58 @@ private fun AuthenticatedVeloraApp(
         }
     }
 
+    if (account?.isSuspended == true) {
+        androidx.compose.material3.Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = VeloraBackground
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(32.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.AdminPanelSettings,
+                    contentDescription = null,
+                    tint = VeloraError,
+                    modifier = Modifier.size(64.dp)
+                )
+                Spacer(Modifier.height(16.dp))
+                Text(
+                    text = "Account Suspended",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = VeloraOnBackground
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = "Your Notflix account has been suspended by an administrator. Please contact support for assistance.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = VeloraOnSurfaceMuted,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                )
+                Spacer(Modifier.height(24.dp))
+                Button(
+                    onClick = { signOutFromVelora(credentialManager, scope) },
+                    colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)
+                ) {
+                    Text("Sign Out")
+                }
+            }
+        }
+        return
+    }
+
     if (!hasSelectedProfile) {
         ProfileSelectorScreen(
             profilesState = profilesState,
             genres = genres,
+            isAdmin = isAdmin,
+            accountIdentifier = account?.email?.takeIf { it.isNotBlank() } ?: account?.phoneNumber,
             onSelectProfile = { viewModel.selectProfile(it) },
+            onOpenAdminDashboard = { navController.navigate(VeloraRoute.Admin) },
+            onSignOut = { signOutFromVelora(credentialManager, scope) },
             onCreateProfile = { name, avatar, isKids, g -> viewModel.createProfile(name, avatar, isKids, g) },
             onUpdateProfile = { id, name, avatar, isKids, g, lang, subs ->
                 viewModel.updateProfile(id, name, avatar, isKids, g, lang, subs)
@@ -213,7 +279,6 @@ private fun AuthenticatedVeloraApp(
         return
     }
 
-    val navController = rememberNavController()
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: ""
     val isPlayerOrDetails = currentRoute.contains("Player") || currentRoute.contains("Details") || currentRoute.contains("Admin")
@@ -339,9 +404,14 @@ private fun AuthenticatedVeloraApp(
                         selectedCategory = homeCategory,
                         selectedGenre = homeGenre,
                         unreadNotifications = notifications.count { !it.read },
+                        isAdmin = isAdmin,
+                        accountIdentifier = account?.email?.takeIf { it.isNotBlank() } ?: account?.phoneNumber,
                         onSelectCategory = viewModel::setHomeCategory,
                         onSelectGenre = viewModel::setHomeGenreFilter,
                         onSwitchProfileClick = viewModel::openProfileSwitcher,
+                        onOpenSettings = { navController.navigate(VeloraRoute.Settings) },
+                        onOpenAdminDashboard = { navController.navigate(VeloraRoute.Admin) },
+                        onSignOut = { signOutFromVelora(credentialManager, scope) },
                         onNotificationsClick = {
                             myListInitialTab = 2
                             navController.navigate(VeloraRoute.MyList)

@@ -136,12 +136,30 @@ class ProfileRepository(
         preferredGenres: List<String>,
         language: String = "English",
         subtitlesEnabled: Boolean = true
+    ): Result<String> = createProfileForUser(
+        targetUserId = requireUserId(),
+        name = name,
+        avatarKey = avatarKey,
+        isKids = isKids,
+        preferredGenres = preferredGenres,
+        language = language,
+        subtitlesEnabled = subtitlesEnabled
+    )
+
+    suspend fun createProfileForUser(
+        targetUserId: String,
+        name: String,
+        avatarKey: String,
+        isKids: Boolean,
+        preferredGenres: List<String>,
+        language: String = "English",
+        subtitlesEnabled: Boolean = true
     ): Result<String> = runCatching {
-        val uid = requireUserId()
-        val colRef = db.collection("users").document(uid).collection("profiles")
+        requireUserId()
+        val colRef = db.collection("users").document(targetUserId).collection("profiles")
         val docRef = colRef.document()
         val profile = UserProfile(
-            userId = uid,
+            userId = targetUserId,
             name = name.trim().take(40).ifBlank { "Viewer" },
             avatarKey = avatarKey,
             isKids = isKids,
@@ -168,9 +186,29 @@ class ProfileRepository(
         preferredGenres: List<String>,
         language: String,
         subtitlesEnabled: Boolean
+    ): Result<Unit> = updateProfileForUser(
+        targetUserId = requireUserId(),
+        profileId = profileId,
+        name = name,
+        avatarKey = avatarKey,
+        isKids = isKids,
+        preferredGenres = preferredGenres,
+        language = language,
+        subtitlesEnabled = subtitlesEnabled
+    )
+
+    suspend fun updateProfileForUser(
+        targetUserId: String,
+        profileId: String,
+        name: String,
+        avatarKey: String,
+        isKids: Boolean,
+        preferredGenres: List<String>,
+        language: String,
+        subtitlesEnabled: Boolean
     ): Result<Unit> = runCatching {
-        val uid = requireUserId()
-        val docRef = db.collection("users").document(uid)
+        requireUserId()
+        val docRef = db.collection("users").document(targetUserId)
             .collection("profiles").document(profileId)
         val updates = mapOf(
             "name" to name.trim().take(40).ifBlank { "Viewer" },
@@ -191,9 +229,12 @@ class ProfileRepository(
         }
     }
 
-    suspend fun deleteProfile(profileId: String): Result<Unit> = runCatching {
-        val uid = requireUserId()
-        val docRef = db.collection("users").document(uid)
+    suspend fun deleteProfile(profileId: String): Result<Unit> =
+        deleteProfileForUser(targetUserId = requireUserId(), profileId = profileId)
+
+    suspend fun deleteProfileForUser(targetUserId: String, profileId: String): Result<Unit> = runCatching {
+        requireUserId()
+        val docRef = db.collection("users").document(targetUserId)
             .collection("profiles").document(profileId)
         try {
             docRef.delete().await()

@@ -23,11 +23,15 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Logout
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.Badge
@@ -35,8 +39,11 @@ import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -73,6 +80,8 @@ import com.example.ui.state.HomeCategoryFilter
 import com.example.ui.theme.VeloraBackground
 import com.example.ui.theme.VeloraCoral
 import com.example.ui.theme.VeloraCrimson
+import com.example.ui.theme.VeloraError
+import com.example.ui.theme.VeloraGold
 import com.example.ui.theme.VeloraKidsCyan
 import com.example.ui.theme.VeloraMatchGreen
 import com.example.ui.theme.VeloraOnBackground
@@ -93,9 +102,14 @@ fun HomeScreen(
     selectedCategory: HomeCategoryFilter,
     selectedGenre: String?,
     unreadNotifications: Int,
+    isAdmin: Boolean = false,
+    accountIdentifier: String? = null,
     onSelectCategory: (HomeCategoryFilter) -> Unit,
     onSelectGenre: (String?) -> Unit,
     onSwitchProfileClick: () -> Unit,
+    onOpenSettings: () -> Unit = {},
+    onOpenAdminDashboard: () -> Unit = {},
+    onSignOut: () -> Unit = {},
     onNotificationsClick: () -> Unit,
     onOpenDetails: (CatalogItem) -> Unit,
     onPlayItem: (CatalogItem, ContinueWatchingEntry?) -> Unit,
@@ -104,6 +118,7 @@ fun HomeScreen(
     var previewItem by remember { mutableStateOf<CatalogItem?>(null) }
     var heroMuted by remember { mutableStateOf(true) }
     var heroIndex by remember { mutableIntStateOf(0) }
+    var showAccountMenu by remember { mutableStateOf(false) }
 
     val filteredCatalog = remember(catalog, selectedCategory, selectedGenre) {
         catalog.filter { item ->
@@ -232,17 +247,135 @@ fun HomeScreen(
                                             }
                                         }
                                         activeProfile?.let { profile ->
-                                            Box(
-                                                modifier = Modifier
-                                                    .clickable(onClick = onSwitchProfileClick)
-                                                    .testTag("home_profile_switcher")
-                                            ) {
-                                                ProfileAvatar(
-                                                    avatarKey = profile.avatarKey,
-                                                    name = profile.name,
-                                                    isKids = profile.isKids,
-                                                    size = 36.dp
-                                                )
+                                            Box {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .clip(CircleShape)
+                                                        .clickable { showAccountMenu = true }
+                                                        .padding(4.dp)
+                                                        .testTag("home_profile_switcher")
+                                                ) {
+                                                    ProfileAvatar(
+                                                        avatarKey = profile.avatarKey,
+                                                        name = profile.name,
+                                                        isKids = profile.isKids,
+                                                        size = 36.dp
+                                                    )
+                                                }
+                                                DropdownMenu(
+                                                    expanded = showAccountMenu,
+                                                    onDismissRequest = { showAccountMenu = false },
+                                                    containerColor = VeloraSurfaceElevated,
+                                                    modifier = Modifier.testTag("home_account_profile_menu")
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                                                    ) {
+                                                        Row(
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                        ) {
+                                                            Text(
+                                                                text = profile.name,
+                                                                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                                color = VeloraOnBackground
+                                                            )
+                                                            if (isAdmin) {
+                                                                Surface(
+                                                                    color = VeloraGold.copy(alpha = 0.2f),
+                                                                    shape = RoundedCornerShape(4.dp)
+                                                                ) {
+                                                                    Text(
+                                                                        text = "ADMIN",
+                                                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                                        color = VeloraGold,
+                                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                        accountIdentifier?.takeIf { it.isNotBlank() }?.let { idText ->
+                                                            Text(
+                                                                text = idText,
+                                                                style = MaterialTheme.typography.labelSmall,
+                                                                color = VeloraOnSurfaceMuted,
+                                                                maxLines = 1,
+                                                                overflow = TextOverflow.Ellipsis
+                                                            )
+                                                        }
+                                                    }
+                                                    HorizontalDivider(color = VeloraOutline)
+                                                    if (isAdmin) {
+                                                        DropdownMenuItem(
+                                                            text = {
+                                                                Text(
+                                                                    "Admin Dashboard",
+                                                                    color = VeloraGold,
+                                                                    fontWeight = FontWeight.Bold
+                                                                )
+                                                            },
+                                                            leadingIcon = {
+                                                                Icon(
+                                                                    Icons.Filled.AdminPanelSettings,
+                                                                    contentDescription = null,
+                                                                    tint = VeloraGold
+                                                                )
+                                                            },
+                                                            onClick = {
+                                                                showAccountMenu = false
+                                                                onOpenAdminDashboard()
+                                                            },
+                                                            modifier = Modifier.testTag("profile_menu_admin_dashboard")
+                                                        )
+                                                        HorizontalDivider(color = VeloraOutline)
+                                                    }
+                                                    DropdownMenuItem(
+                                                        text = { Text("Switch Profile", color = VeloraOnBackground) },
+                                                        leadingIcon = {
+                                                            Icon(
+                                                                Icons.Filled.People,
+                                                                contentDescription = null,
+                                                                tint = VeloraOnBackground
+                                                            )
+                                                        },
+                                                        onClick = {
+                                                            showAccountMenu = false
+                                                            onSwitchProfileClick()
+                                                        },
+                                                        modifier = Modifier.testTag("profile_menu_switch_profile")
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("Account & Settings", color = VeloraOnBackground) },
+                                                        leadingIcon = {
+                                                            Icon(
+                                                                Icons.Filled.Settings,
+                                                                contentDescription = null,
+                                                                tint = VeloraOnBackground
+                                                            )
+                                                        },
+                                                        onClick = {
+                                                            showAccountMenu = false
+                                                            onOpenSettings()
+                                                        },
+                                                        modifier = Modifier.testTag("profile_menu_settings")
+                                                    )
+                                                    DropdownMenuItem(
+                                                        text = { Text("Sign Out", color = VeloraError) },
+                                                        leadingIcon = {
+                                                            Icon(
+                                                                Icons.AutoMirrored.Filled.Logout,
+                                                                contentDescription = null,
+                                                                tint = VeloraError
+                                                            )
+                                                        },
+                                                        onClick = {
+                                                            showAccountMenu = false
+                                                            onSignOut()
+                                                        },
+                                                        modifier = Modifier.testTag("profile_menu_sign_out")
+                                                    )
+                                                }
                                             }
                                         }
                                     }

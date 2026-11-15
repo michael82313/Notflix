@@ -1,5 +1,6 @@
 package com.example.ui.state
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.model.CatalogItem
@@ -21,6 +22,9 @@ import com.example.data.model.UserSubscription
 import com.example.data.model.WatchlistItem
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.CatalogRepository
+import com.example.data.repository.MediaAssetCategory
+import com.example.data.repository.MediaUploadRepository
+import com.example.data.repository.MediaUploadState
 import com.example.data.repository.ProfileRepository
 import com.example.data.repository.SubscriptionRepository
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -64,7 +68,8 @@ class VeloraViewModel(
     private val profileRepository: ProfileRepository,
     private val catalogRepository: CatalogRepository,
     private val subscriptionRepository: SubscriptionRepository,
-    val currentUserId: String
+    val currentUserId: String,
+    private val mediaUploadRepository: MediaUploadRepository? = null
 ) : ViewModel() {
 
     private val _statusMessage = MutableStateFlow<String?>(null)
@@ -72,6 +77,9 @@ class VeloraViewModel(
 
     private val _isSavingCatalog = MutableStateFlow(false)
     val isSavingCatalog: StateFlow<Boolean> = _isSavingCatalog.asStateFlow()
+
+    private val _mediaUploadStates = MutableStateFlow<Map<String, MediaUploadState>>(emptyMap())
+    val mediaUploadStates: StateFlow<Map<String, MediaUploadState>> = _mediaUploadStates.asStateFlow()
 
     private val _isLoadingSeriesStructure = MutableStateFlow(false)
     val isLoadingSeriesStructure: StateFlow<Boolean> = _isLoadingSeriesStructure.asStateFlow()
@@ -739,6 +747,130 @@ class VeloraViewModel(
                 .onFailure {
                     _statusMessage.value = it.localizedMessage ?: "Failed to update user role"
                 }
+        }
+    }
+
+    fun setUserSuspended(target: UserAccount, suspended: Boolean) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            catalogRepository.setUserSuspended(target, suspended)
+                .onSuccess {
+                    _statusMessage.value = if (suspended) {
+                        "Suspended account ${target.displayName}"
+                    } else {
+                        "Restored account ${target.displayName}"
+                    }
+                }
+                .onFailure {
+                    _statusMessage.value = it.localizedMessage ?: "Failed to update suspension status"
+                }
+        }
+    }
+
+    fun observeUserProfilesForAdmin(userId: String): Flow<List<UserProfile>> =
+        profileRepository.observeProfiles(userId)
+            .catch { emit(emptyList()) }
+
+    fun adminCreateProfile(
+        targetUserId: String,
+        name: String,
+        avatarKey: String,
+        isKids: Boolean,
+        preferredGenres: List<String>
+    ) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            profileRepository.createProfileForUser(
+                targetUserId = targetUserId,
+                name = name,
+                avatarKey = avatarKey,
+                isKids = isKids,
+                preferredGenres = preferredGenres
+            ).onSuccess {
+                _statusMessage.value = "Created profile \"$name\""
+            }.onFailure {
+                _statusMessage.value = it.localizedMessage ?: "Failed to create profile"
+            }
+        }
+    }
+
+    fun adminUpdateProfile(
+        targetUserId: String,
+        profileId: String,
+        name: String,
+        avatarKey: String,
+        isKids: Boolean,
+        preferredGenres: List<String>,
+        language: String,
+        subtitlesEnabled: Boolean
+    ) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            profileRepository.updateProfileForUser(
+                targetUserId = targetUserId,
+                profileId = profileId,
+                name = name,
+                avatarKey = avatarKey,
+                isKids = isKids,
+                preferredGenres = preferredGenres,
+                language = language,
+                subtitlesEnabled = subtitlesEnabled
+            ).onSuccess {
+                _statusMessage.value = "Updated profile \"$name\""
+            }.onFailure {
+                _statusMessage.value = it.localizedMessage ?: "Failed to update profile"
+            }
+        }
+    }
+
+    fun adminDeleteProfile(targetUserId: String, profileId: String) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            profileRepository.deleteProfileForUser(targetUserId, profileId)
+                .onSuccess {
+                    _statusMessage.value = "Removed user profile"
+                }
+                .onFailure {
+                    _statusMessage.value = it.localizedMessage ?: "Failed to delete user profile"
+                }
+        }
+    }
+
+    fun uploadMediaFile(
+        fieldKey: String,
+        uri: Uri,
+        category: MediaAssetCategory,
+        contentFolderHint: String,
+        onUploaded: (downloadUrl: String, mimeType: String?, fileName: String) -> Unit
+    ) {
+        if (!requireAdminAction()) return
+        val uploader = mediaUploadRepository
+        if (uploader == null) {
+            _statusMessage.value = "Media upload service unavailable."
+            return
+        }
+        viewModelScope.launch {
+            uploader.uploadMedia(uri, category, contentFolderHint).collect { state ->
+                _mediaUploadStates.value = _mediaUploadStates.value + (fieldKey to state)
+                when (state) {
+                    is MediaUploadState.Success -> {
+                        onUploaded(state.downloadUrl, state.mimeType, state.fileName)
+                        _statusMessage.value = "${category.label} uploaded (${state.fileName})"
+                    }
+                    is MediaUploadState.Error -> {
+                        _statusMessage.value = state.message
+                    }
+                    else -> Unit
+                }
+            }
+        }
+    }
+
+    fun clearMediaUploadState(fieldKey: String? = null) {
+        if (fieldKey == null) {
+            _mediaUploadStates.value = emptyMap()
+        } else {
+            _mediaUploadStates.value = _mediaUploadStates.value - fieldKey
         }
     }
 
