@@ -72,11 +72,13 @@ fun YouTubeEmbedPlayer(
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
+                databaseEnabled = true
+                allowFileAccess = true
                 mediaPlaybackRequiresUserGesture = false
                 loadsImagesAutomatically = true
                 useWideViewPort = true
                 loadWithOverviewMode = true
-                mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
+                mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             }
 
             val bridge = object {
@@ -117,9 +119,9 @@ fun YouTubeEmbedPlayer(
                         val friendly = when (code) {
                             2 -> "Invalid YouTube video ID or embed parameter."
                             5 -> "This YouTube video cannot play in the embedded HTML5 player."
-                            100 -> "This YouTube video was removed or marked private."
-                            101, 150, 153 -> "Embedding is disabled by the owner of this YouTube video (Error $code)."
-                            else -> "YouTube playback unavailable (Error $code)."
+                            100 -> "This YouTube video was removed, made private, or marked unavailable."
+                            101, 150, 152, 153 -> "Embedding is disabled by the owner of this YouTube video (Error $code). Please edit this title in the Admin Dashboard and use an embed-friendly YouTube video URL or direct MP4 link."
+                            else -> "YouTube Playback Unavailable (Error $code). The video owner may have disabled embedding or restrictions apply."
                         }
                         latestOnError(friendly)
                     }
@@ -203,6 +205,7 @@ private fun buildYouTubeIframeHtml(videoId: String, startSeconds: Long): String 
         <head>
           <meta charset="utf-8" />
           <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+          <meta name="referrer" content="strict-origin-when-cross-origin" />
           <style>
             html, body {
               margin: 0;
@@ -236,60 +239,65 @@ private fun buildYouTubeIframeHtml(videoId: String, startSeconds: Long): String 
             var pollTimer = null;
 
             function onYouTubeIframeAPIReady() {
-              player = new YT.Player('player', {
-                width: '100%',
-                height: '100%',
-                videoId: '$safeVideoId',
-                playerVars: {
-                  autoplay: 1,
-                  controls: 1,
-                  playsinline: 1,
-                  rel: 0,
-                  modestbranding: 1,
-                  iv_load_policy: 3,
-                  enablejsapi: 1,
-                  origin: 'https://www.youtube.com',
-                  start: $startSeconds
-                },
-                events: {
-                  onReady: function(event) {
-                    try {
-                      var dur = event.target.getDuration() || 0;
-                      NotflixYouTubeBridge.onPlayerReady(dur);
-                      event.target.playVideo();
-                    } catch (e) {}
+              try {
+                player = new YT.Player('player', {
+                  width: '100%',
+                  height: '100%',
+                  videoId: '$safeVideoId',
+                  playerVars: {
+                    autoplay: 1,
+                    controls: 1,
+                    playsinline: 1,
+                    rel: 0,
+                    modestbranding: 1,
+                    iv_load_policy: 3,
+                    enablejsapi: 1,
+                    origin: 'https://www.youtube.com',
+                    widget_referrer: 'https://www.youtube.com',
+                    start: $startSeconds
                   },
-                  onStateChange: function(event) {
-                    try {
-                      var cur = event.target.getCurrentTime() || 0;
-                      var dur = event.target.getDuration() || 0;
-                      NotflixYouTubeBridge.onPlayerState(event.data, cur, dur);
-                      if (event.data === 1) {
-                        if (!pollTimer) {
-                          pollTimer = setInterval(function() {
-                            if (player && player.getCurrentTime) {
-                              NotflixYouTubeBridge.onTimeUpdate(
-                                player.getCurrentTime() || 0,
-                                player.getDuration() || 0
-                              );
-                            }
-                          }, 2000);
+                  events: {
+                    onReady: function(event) {
+                      try {
+                        var dur = event.target.getDuration() || 0;
+                        NotflixYouTubeBridge.onPlayerReady(dur);
+                        event.target.playVideo();
+                      } catch (e) {}
+                    },
+                    onStateChange: function(event) {
+                      try {
+                        var cur = event.target.getCurrentTime() || 0;
+                        var dur = event.target.getDuration() || 0;
+                        NotflixYouTubeBridge.onPlayerState(event.data, cur, dur);
+                        if (event.data === 1) {
+                          if (!pollTimer) {
+                            pollTimer = setInterval(function() {
+                              if (player && player.getCurrentTime) {
+                                NotflixYouTubeBridge.onTimeUpdate(
+                                  player.getCurrentTime() || 0,
+                                  player.getDuration() || 0
+                                );
+                              }
+                            }, 2000);
+                          }
+                        } else {
+                          if (pollTimer) {
+                            clearInterval(pollTimer);
+                            pollTimer = null;
+                          }
                         }
-                      } else {
-                        if (pollTimer) {
-                          clearInterval(pollTimer);
-                          pollTimer = null;
-                        }
-                      }
-                    } catch (e) {}
-                  },
-                  onError: function(event) {
-                    try {
-                      NotflixYouTubeBridge.onPlayerError(event.data || -1);
-                    } catch (e) {}
+                      } catch (e) {}
+                    },
+                    onError: function(event) {
+                      try {
+                        NotflixYouTubeBridge.onPlayerError(event.data || -1);
+                      } catch (e) {}
+                    }
                   }
-                }
-              });
+                });
+              } catch (err) {
+                NotflixYouTubeBridge.onPlayerError(-99);
+              }
             }
 
             window.notflixStop = function() {
