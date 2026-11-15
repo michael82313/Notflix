@@ -24,12 +24,16 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.VolumeOff
+import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ClosedCaption
 import androidx.compose.material.icons.filled.ClosedCaptionOff
+import androidx.compose.material.icons.filled.ErrorOutline
 import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
@@ -39,8 +43,6 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.automirrored.filled.VolumeOff
-import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -50,6 +52,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
@@ -68,6 +71,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -77,6 +81,7 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -92,11 +97,15 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.example.data.model.Episode
+import com.example.ui.components.YouTubeEmbedPlayer
 import com.example.ui.theme.VeloraCrimson
+import com.example.ui.theme.VeloraError
 import com.example.ui.theme.VeloraOnBackground
 import com.example.ui.theme.VeloraOnSurfaceMuted
 import com.example.ui.theme.VeloraOutline
 import com.example.ui.theme.VeloraSurfaceElevated
+import com.example.util.VideoSourceType
+import com.example.util.VideoSourceUtils
 import kotlinx.coroutines.delay
 import java.util.Locale
 
@@ -107,6 +116,7 @@ fun PlayerScreen(
     title: String,
     subtitleLabel: String?,
     streamUrl: String,
+    streamSourceType: String? = null,
     episodeId: String?,
     seasonNumber: Int?,
     episodeNumber: Int?,
@@ -122,72 +132,12 @@ fun PlayerScreen(
     val context = LocalContext.current
     val activity = context as? Activity
 
-    var isPlaying by remember { mutableStateOf(true) }
-    var isBuffering by remember { mutableStateOf(true) }
-    var playerError by remember { mutableStateOf<String?>(null) }
-    var currentPosMs by remember { mutableLongStateOf(initialPositionMs) }
-    var durationMs by remember { mutableLongStateOf(0L) }
-    var controlsVisible by remember { mutableStateOf(true) }
-    var volume by remember { mutableFloatStateOf(1f) }
-    var isMuted by remember { mutableStateOf(false) }
-    var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
-    var selectedQuality by remember { mutableStateOf(defaultQuality) }
-    var subtitlesEnabled by remember { mutableStateOf(defaultSubtitlesEnabled) }
+    val resolvedSource = remember(streamUrl, streamSourceType) {
+        VideoSourceUtils.resolveForPlayback(streamUrl, streamSourceType)
+    }
+
     var isFullscreen by remember { mutableStateOf(false) }
-    var showSpeedMenu by remember { mutableStateOf(false) }
-    var showQualityMenu by remember { mutableStateOf(false) }
-    var showTracksDialog by remember { mutableStateOf(false) }
-    var selectedAudioLang by remember { mutableStateOf("English (Original)") }
-    var nextEpisodeCountdown by remember { mutableIntStateOf(-1) }
-
-    val exoPlayer = remember(streamUrl) {
-        ExoPlayer.Builder(context).build().apply {
-            val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl)
-            if (streamUrl.contains(".m3u8", ignoreCase = true)) {
-                mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
-            }
-            setMediaItem(mediaItemBuilder.build())
-            applyQualityConstraint(this, selectedQuality, subtitlesEnabled)
-            prepare()
-            if (initialPositionMs > 2000L) {
-                seekTo(initialPositionMs)
-            }
-            playWhenReady = true
-        }
-    }
-
-    // Track listener + periodic position sync
-    DisposableEffect(exoPlayer) {
-        val listener = object : Player.Listener {
-            override fun onPlaybackStateChanged(playbackState: Int) {
-                isBuffering = playbackState == Player.STATE_BUFFERING
-                if (playbackState == Player.STATE_READY) {
-                    durationMs = exoPlayer.duration.coerceAtLeast(0L)
-                }
-                if (playbackState == Player.STATE_ENDED) {
-                    onSaveProgress(exoPlayer.duration.coerceAtLeast(0L), exoPlayer.duration.coerceAtLeast(0L))
-                    if (autoplayNext && nextEpisode != null) {
-                        nextEpisodeCountdown = 5
-                    }
-                }
-            }
-
-            override fun onIsPlayingChanged(playing: Boolean) {
-                isPlaying = playing
-            }
-
-            override fun onPlayerError(error: PlaybackException) {
-                playerError = error.localizedMessage ?: "Unable to play stream"
-                isBuffering = false
-            }
-        }
-        exoPlayer.addListener(listener)
-        onDispose {
-            onSaveProgress(exoPlayer.currentPosition.coerceAtLeast(0L), exoPlayer.duration.coerceAtLeast(0L))
-            exoPlayer.removeListener(listener)
-            exoPlayer.release()
-        }
-    }
+    var nextEpisodeCountdown by remember(streamUrl, episodeId) { mutableIntStateOf(-1) }
 
     // Fullscreen & orientation management
     DisposableEffect(isFullscreen) {
@@ -212,6 +162,355 @@ fun PlayerScreen(
         }
     }
 
+    // Next Episode Countdown
+    LaunchedEffect(nextEpisodeCountdown) {
+        if (nextEpisodeCountdown > 0) {
+            delay(1000L)
+            nextEpisodeCountdown--
+        } else if (nextEpisodeCountdown == 0 && nextEpisode != null) {
+            nextEpisodeCountdown = -1
+            onPlayNextEpisode(nextEpisode)
+        }
+    }
+
+    // Source validation failure UI
+    if (resolvedSource.validationError != null) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            PlaybackErrorCard(
+                title = "Playback Unavailable",
+                message = resolvedSource.validationError,
+                sourceBadge = resolvedSource.sourceType.label,
+                canRetry = false,
+                onRetry = {},
+                onBack = onBack
+            )
+        }
+        return
+    }
+
+    if (resolvedSource.sourceType == VideoSourceType.YOUTUBE && resolvedSource.youtubeVideoId != null) {
+        YouTubePlayerHost(
+            title = title,
+            subtitleLabel = subtitleLabel,
+            videoId = resolvedSource.youtubeVideoId,
+            initialPositionMs = initialPositionMs,
+            autoplayNext = autoplayNext,
+            isFullscreen = isFullscreen,
+            nextEpisode = nextEpisode,
+            nextEpisodeCountdown = nextEpisodeCountdown,
+            onToggleFullscreen = { isFullscreen = !isFullscreen },
+            onSaveProgress = onSaveProgress,
+            onTriggerNextCountdown = { nextEpisodeCountdown = 5 },
+            onCancelNextCountdown = { nextEpisodeCountdown = -1 },
+            onPlayNextEpisode = onPlayNextEpisode,
+            onBack = onBack
+        )
+        return
+    }
+
+    ExoDirectVideoPlayerHost(
+        title = title,
+        subtitleLabel = subtitleLabel,
+        streamUrl = resolvedSource.url,
+        sourceType = resolvedSource.sourceType,
+        initialPositionMs = initialPositionMs,
+        defaultQuality = defaultQuality,
+        defaultSubtitlesEnabled = defaultSubtitlesEnabled,
+        autoplayNext = autoplayNext,
+        isFullscreen = isFullscreen,
+        nextEpisode = nextEpisode,
+        nextEpisodeCountdown = nextEpisodeCountdown,
+        onToggleFullscreen = { isFullscreen = !isFullscreen },
+        onSaveProgress = onSaveProgress,
+        onTriggerNextCountdown = { nextEpisodeCountdown = 5 },
+        onCancelNextCountdown = { nextEpisodeCountdown = -1 },
+        onPlayNextEpisode = onPlayNextEpisode,
+        onBack = onBack
+    )
+}
+
+@Composable
+private fun YouTubePlayerHost(
+    title: String,
+    subtitleLabel: String?,
+    videoId: String,
+    initialPositionMs: Long,
+    autoplayNext: Boolean,
+    isFullscreen: Boolean,
+    nextEpisode: Episode?,
+    nextEpisodeCountdown: Int,
+    onToggleFullscreen: () -> Unit,
+    onSaveProgress: (positionMs: Long, durationMs: Long) -> Unit,
+    onTriggerNextCountdown: () -> Unit,
+    onCancelNextCountdown: () -> Unit,
+    onPlayNextEpisode: (Episode) -> Unit,
+    onBack: () -> Unit
+) {
+    var reloadToken by remember { mutableIntStateOf(0) }
+    var isLoading by remember(videoId, reloadToken) { mutableStateOf(true) }
+    var ytError by remember(videoId, reloadToken) { mutableStateOf<String?>(null) }
+    var latestPosMs by remember(videoId) { mutableLongStateOf(initialPositionMs) }
+    var latestDurMs by remember(videoId) { mutableLongStateOf(0L) }
+    var lastSavedTickMs by remember(videoId) { mutableLongStateOf(0L) }
+
+    DisposableEffect(videoId) {
+        onDispose {
+            if (latestDurMs > 0L) {
+                onSaveProgress(latestPosMs, latestDurMs)
+            }
+        }
+    }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        YouTubeEmbedPlayer(
+            videoId = videoId,
+            initialPositionMs = initialPositionMs,
+            reloadToken = reloadToken,
+            onReady = { dur ->
+                isLoading = false
+                if (dur > 0L) latestDurMs = dur
+            },
+            onProgress = { pos, dur, _ ->
+                latestPosMs = pos
+                if (dur > 0L) latestDurMs = dur
+                if (dur > 0L && kotlin.math.abs(pos - lastSavedTickMs) >= 5000L) {
+                    lastSavedTickMs = pos
+                    onSaveProgress(pos, dur)
+                }
+            },
+            onEnded = { dur ->
+                if (dur > 0L) {
+                    latestDurMs = dur
+                    onSaveProgress(dur, dur)
+                }
+                if (autoplayNext && nextEpisode != null) {
+                    onTriggerNextCountdown()
+                }
+            },
+            onError = { message ->
+                isLoading = false
+                ytError = message
+            }
+        )
+
+        // Top non-obstructive bar above the YouTube embedded iframe
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)
+                    )
+                )
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                IconButton(
+                    onClick = {
+                        if (latestDurMs > 0L) onSaveProgress(latestPosMs, latestDurMs)
+                        onBack()
+                    },
+                    modifier = Modifier.testTag("player_back_button")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Column {
+                    Text(title, style = MaterialTheme.typography.titleMedium, color = Color.White)
+                    if (!subtitleLabel.isNullOrBlank()) {
+                        Text(subtitleLabel, style = MaterialTheme.typography.bodySmall, color = VeloraOnSurfaceMuted)
+                    }
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Surface(
+                    color = VeloraCrimson.copy(alpha = 0.25f),
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, VeloraCrimson.copy(alpha = 0.6f))
+                ) {
+                    Text(
+                        text = "YouTube",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+                if (nextEpisode != null) {
+                    TextButton(
+                        onClick = {
+                            if (latestDurMs > 0L) onSaveProgress(latestPosMs, latestDurMs)
+                            onPlayNextEpisode(nextEpisode)
+                        },
+                        modifier = Modifier.testTag("next_episode_button")
+                    ) {
+                        Icon(Icons.Filled.SkipNext, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Next Ep", color = Color.White)
+                    }
+                }
+                IconButton(onClick = onToggleFullscreen) {
+                    Icon(
+                        imageVector = if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                        contentDescription = "Toggle fullscreen",
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+
+        if (isLoading && ytError == null) {
+            CircularProgressIndicator(
+                color = VeloraCrimson,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+
+        if (ytError != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.78f))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                PlaybackErrorCard(
+                    title = "YouTube Playback Unavailable",
+                    message = ytError!!,
+                    sourceBadge = "YouTube Embed",
+                    canRetry = true,
+                    onRetry = {
+                        ytError = null
+                        isLoading = true
+                        reloadToken++
+                    },
+                    onBack = onBack
+                )
+            }
+        }
+
+        if (nextEpisodeCountdown >= 0 && nextEpisode != null) {
+            NextEpisodeCountdownCard(
+                nextEpisode = nextEpisode,
+                countdownSeconds = nextEpisodeCountdown,
+                onCancel = onCancelNextCountdown,
+                onPlayNow = { onPlayNextEpisode(nextEpisode) },
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .navigationBarsPadding()
+                    .padding(20.dp)
+            )
+        }
+    }
+}
+
+@OptIn(UnstableApi::class)
+@Composable
+private fun ExoDirectVideoPlayerHost(
+    title: String,
+    subtitleLabel: String?,
+    streamUrl: String,
+    sourceType: VideoSourceType,
+    initialPositionMs: Long,
+    defaultQuality: String,
+    defaultSubtitlesEnabled: Boolean,
+    autoplayNext: Boolean,
+    isFullscreen: Boolean,
+    nextEpisode: Episode?,
+    nextEpisodeCountdown: Int,
+    onToggleFullscreen: () -> Unit,
+    onSaveProgress: (positionMs: Long, durationMs: Long) -> Unit,
+    onTriggerNextCountdown: () -> Unit,
+    onCancelNextCountdown: () -> Unit,
+    onPlayNextEpisode: (Episode) -> Unit,
+    onBack: () -> Unit
+) {
+    val context = LocalContext.current
+
+    var isPlaying by remember { mutableStateOf(true) }
+    var isBuffering by remember { mutableStateOf(true) }
+    var playerError by remember(streamUrl) { mutableStateOf<String?>(null) }
+    var currentPosMs by remember { mutableLongStateOf(initialPositionMs) }
+    var durationMs by remember { mutableLongStateOf(0L) }
+    var controlsVisible by remember { mutableStateOf(true) }
+    var volume by remember { mutableFloatStateOf(1f) }
+    var isMuted by remember { mutableStateOf(false) }
+    var playbackSpeed by remember { mutableFloatStateOf(1.0f) }
+    var selectedQuality by remember { mutableStateOf(defaultQuality) }
+    var subtitlesEnabled by remember { mutableStateOf(defaultSubtitlesEnabled) }
+    var showSpeedMenu by remember { mutableStateOf(false) }
+    var showQualityMenu by remember { mutableStateOf(false) }
+    var showTracksDialog by remember { mutableStateOf(false) }
+    var selectedAudioLang by remember { mutableStateOf("English (Original)") }
+
+    val exoPlayer = remember(streamUrl, sourceType) {
+        ExoPlayer.Builder(context).build().apply {
+            val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl)
+            if (sourceType == VideoSourceType.HLS || streamUrl.contains(".m3u8", ignoreCase = true)) {
+                mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+            }
+            setMediaItem(mediaItemBuilder.build())
+            applyQualityConstraint(this, selectedQuality, subtitlesEnabled)
+            prepare()
+            if (initialPositionMs > 2000L) {
+                seekTo(initialPositionMs)
+            }
+            playWhenReady = true
+        }
+    }
+
+    // Track listener + periodic position sync
+    DisposableEffect(exoPlayer) {
+        val listener = object : Player.Listener {
+            override fun onPlaybackStateChanged(playbackState: Int) {
+                isBuffering = playbackState == Player.STATE_BUFFERING
+                if (playbackState == Player.STATE_READY) {
+                    durationMs = exoPlayer.duration.coerceAtLeast(0L)
+                }
+                if (playbackState == Player.STATE_ENDED) {
+                    onSaveProgress(exoPlayer.duration.coerceAtLeast(0L), exoPlayer.duration.coerceAtLeast(0L))
+                    if (autoplayNext && nextEpisode != null) {
+                        onTriggerNextCountdown()
+                    }
+                }
+            }
+
+            override fun onIsPlayingChanged(playing: Boolean) {
+                isPlaying = playing
+            }
+
+            override fun onPlayerError(error: PlaybackException) {
+                playerError = formatPlaybackException(error, sourceType)
+                isBuffering = false
+            }
+        }
+        exoPlayer.addListener(listener)
+        onDispose {
+            onSaveProgress(exoPlayer.currentPosition.coerceAtLeast(0L), exoPlayer.duration.coerceAtLeast(0L))
+            exoPlayer.removeListener(listener)
+            exoPlayer.release()
+        }
+    }
+
     // Poll current position & periodically persist progress every 5s
     LaunchedEffect(exoPlayer) {
         var ticks = 0
@@ -224,17 +523,6 @@ fun PlayerScreen(
                 onSaveProgress(currentPosMs, durationMs)
             }
             delay(1000L)
-        }
-    }
-
-    // Next Episode Countdown
-    LaunchedEffect(nextEpisodeCountdown) {
-        if (nextEpisodeCountdown > 0) {
-            delay(1000L)
-            nextEpisodeCountdown--
-        } else if (nextEpisodeCountdown == 0 && nextEpisode != null) {
-            nextEpisodeCountdown = -1
-            onPlayNextEpisode(nextEpisode)
         }
     }
 
@@ -273,7 +561,7 @@ fun PlayerScreen(
                             true
                         }
                         Key.F -> {
-                            isFullscreen = !isFullscreen
+                            onToggleFullscreen()
                             true
                         }
                         else -> false
@@ -300,7 +588,7 @@ fun PlayerScreen(
             modifier = Modifier.fillMaxSize()
         )
 
-        if (isBuffering) {
+        if (isBuffering && playerError == null) {
             CircularProgressIndicator(
                 color = VeloraCrimson,
                 modifier = Modifier.align(Alignment.Center)
@@ -308,31 +596,26 @@ fun PlayerScreen(
         }
 
         if (playerError != null) {
-            Surface(
-                color = VeloraSurfaceElevated.copy(alpha = 0.94f),
-                shape = RoundedCornerShape(14.dp),
+            Box(
                 modifier = Modifier
-                    .align(Alignment.Center)
-                    .padding(24.dp)
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.78f))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
             ) {
-                Column(
-                    modifier = Modifier.padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
-                    Text("Playback Issue", style = MaterialTheme.typography.titleLarge, color = VeloraOnBackground)
-                    Text(playerError!!, style = MaterialTheme.typography.bodyMedium, color = VeloraOnSurfaceMuted)
-                    Button(
-                        onClick = {
-                            playerError = null
-                            exoPlayer.prepare()
-                            exoPlayer.play()
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)
-                    ) {
-                        Text("Retry Stream")
-                    }
-                }
+                PlaybackErrorCard(
+                    title = "Playback Unavailable",
+                    message = playerError!!,
+                    sourceBadge = sourceType.label,
+                    canRetry = true,
+                    onRetry = {
+                        playerError = null
+                        isBuffering = true
+                        exoPlayer.prepare()
+                        exoPlayer.play()
+                    },
+                    onBack = onBack
+                )
             }
         }
 
@@ -340,7 +623,7 @@ fun PlayerScreen(
         if (subtitlesEnabled && isPlaying && playerError == null) {
             val captionLine = when {
                 currentPosMs < 15_000L -> "[$title — Audio: $selectedAudioLang]"
-                currentPosMs < 35_000L -> "Captions active • Adaptive stream ready"
+                currentPosMs < 35_000L -> "Captions active • ${sourceType.label} stream ready"
                 else -> null
             }
             if (captionLine != null) {
@@ -389,51 +672,21 @@ fun PlayerScreen(
             }
         }
 
-        // Next Episode Countdown Card
         if (nextEpisodeCountdown >= 0 && nextEpisode != null) {
-            Surface(
-                color = VeloraSurfaceElevated.copy(alpha = 0.95f),
-                shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, VeloraOutline),
+            NextEpisodeCountdownCard(
+                nextEpisode = nextEpisode,
+                countdownSeconds = nextEpisodeCountdown,
+                onCancel = onCancelNextCountdown,
+                onPlayNow = { onPlayNextEpisode(nextEpisode) },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(20.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "Next Episode in ${nextEpisodeCountdown}s",
-                        style = MaterialTheme.typography.labelLarge,
-                        color = VeloraCrimson
-                    )
-                    Text(
-                        text = "E${nextEpisode.episodeNumber}: ${nextEpisode.title}",
-                        style = MaterialTheme.typography.titleMedium,
-                        color = VeloraOnBackground
-                    )
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        TextButton(onClick = { nextEpisodeCountdown = -1 }) {
-                            Text("Cancel", color = VeloraOnSurfaceMuted)
-                        }
-                        Button(
-                            onClick = {
-                                nextEpisodeCountdown = -1
-                                onPlayNextEpisode(nextEpisode)
-                            },
-                            colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)
-                        ) {
-                            Text("Play Now")
-                        }
-                    }
-                }
-            }
+            )
         }
 
         // Custom Cinema HUD Controls
         AnimatedVisibility(
-            visible = controlsVisible,
+            visible = controlsVisible && playerError == null,
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier.fillMaxSize()
@@ -501,7 +754,7 @@ fun PlayerScreen(
                                 )
                             )
                         }
-                        IconButton(onClick = { isFullscreen = !isFullscreen }) {
+                        IconButton(onClick = onToggleFullscreen) {
                             Icon(
                                 imageVector = if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
                                 contentDescription = "Toggle fullscreen",
@@ -742,6 +995,154 @@ fun PlayerScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun PlaybackErrorCard(
+    title: String,
+    message: String,
+    sourceBadge: String,
+    canRetry: Boolean,
+    onRetry: () -> Unit,
+    onBack: () -> Unit
+) {
+    Surface(
+        color = VeloraSurfaceElevated,
+        shape = RoundedCornerShape(16.dp),
+        border = BorderStroke(1.dp, VeloraOutline),
+        modifier = Modifier.widthIn(max = 460.dp)
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(22.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            Icon(
+                imageVector = Icons.Filled.ErrorOutline,
+                contentDescription = null,
+                tint = VeloraError,
+                modifier = Modifier.size(44.dp)
+            )
+            Surface(
+                color = VeloraCrimson.copy(alpha = 0.16f),
+                shape = RoundedCornerShape(8.dp)
+            ) {
+                Text(
+                    text = sourceBadge,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = VeloraCrimson,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                )
+            }
+            Text(
+                text = title,
+                style = MaterialTheme.typography.headlineSmall,
+                color = VeloraOnBackground,
+                textAlign = TextAlign.Center
+            )
+            Text(
+                text = message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = VeloraOnSurfaceMuted,
+                textAlign = TextAlign.Center
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                OutlinedButton(
+                    onClick = onBack,
+                    modifier = Modifier
+                        .weight(1f)
+                        .height(48.dp)
+                        .testTag("player_error_back_button"),
+                    border = BorderStroke(1.dp, VeloraOutline)
+                ) {
+                    Text("Go Back", color = VeloraOnBackground)
+                }
+                if (canRetry) {
+                    Button(
+                        onClick = onRetry,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("player_error_retry_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)
+                    ) {
+                        Text("Retry", color = Color.White)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NextEpisodeCountdownCard(
+    nextEpisode: Episode,
+    countdownSeconds: Int,
+    onCancel: () -> Unit,
+    onPlayNow: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        color = VeloraSurfaceElevated.copy(alpha = 0.95f),
+        shape = RoundedCornerShape(14.dp),
+        border = BorderStroke(1.dp, VeloraOutline),
+        modifier = modifier
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = "Next Episode in ${countdownSeconds}s",
+                style = MaterialTheme.typography.labelLarge,
+                color = VeloraCrimson
+            )
+            Text(
+                text = "E${nextEpisode.episodeNumber}: ${nextEpisode.title}",
+                style = MaterialTheme.typography.titleMedium,
+                color = VeloraOnBackground
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                TextButton(onClick = onCancel) {
+                    Text("Cancel", color = VeloraOnSurfaceMuted)
+                }
+                Button(
+                    onClick = onPlayNow,
+                    colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)
+                ) {
+                    Text("Play Now")
+                }
+            }
+        }
+    }
+}
+
+private fun formatPlaybackException(error: PlaybackException, sourceType: VideoSourceType): String {
+    return when (error.errorCode) {
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
+        PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
+            "Network connection failed while loading this ${sourceType.label} stream. Check your internet connection and retry."
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
+            "The video server returned an HTTP error (${error.localizedMessage ?: "403/404"}). Verify the ${sourceType.label} URL is publicly accessible."
+        PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED ->
+            "Cleartext http:// streams are blocked. Update the video source URL to https://."
+        PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
+        PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED ->
+            "This HLS playlist (.m3u8) appears invalid or uses an unsupported manifest format."
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
+        PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ->
+            "This direct video file could not be parsed. Verify it is an authorized MP4 or HLS stream."
+        PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
+        PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED ->
+            "This device could not initialize a video decoder for this stream format."
+        else -> error.localizedMessage?.takeIf { it.isNotBlank() }
+            ?: "Unable to play this ${sourceType.label} source (${error.errorCodeName})."
     }
 }
 

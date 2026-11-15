@@ -26,7 +26,9 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CloudSync
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material.icons.filled.Visibility
@@ -34,7 +36,6 @@ import androidx.compose.material.icons.filled.VisibilityOff
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -66,10 +67,12 @@ import com.example.data.model.CatalogItem
 import com.example.data.model.Episode
 import com.example.data.model.Genre
 import com.example.data.model.Season
+import com.example.data.model.SeasonDraft
 import com.example.data.model.SubscriptionPlan
 import com.example.data.model.UserAccount
 import com.example.data.model.UserSubscription
 import com.example.ui.theme.VeloraBackground
+import com.example.ui.theme.VeloraCoral
 import com.example.ui.theme.VeloraCrimson
 import com.example.ui.theme.VeloraError
 import com.example.ui.theme.VeloraGold
@@ -78,6 +81,8 @@ import com.example.ui.theme.VeloraOnBackground
 import com.example.ui.theme.VeloraOnSurfaceMuted
 import com.example.ui.theme.VeloraOutline
 import com.example.ui.theme.VeloraSurfaceElevated
+import com.example.util.VideoSourceType
+import com.example.util.VideoSourceUtils
 
 @Composable
 fun AdminDashboardScreen(
@@ -87,10 +92,21 @@ fun AdminDashboardScreen(
     users: List<UserAccount>,
     subscriptionPlans: List<SubscriptionPlan>,
     userSubscriptions: List<UserSubscription>,
+    isSavingCatalog: Boolean,
+    isLoadingSeriesSeasons: Boolean,
+    loadedSeriesSeasons: List<SeasonDraft>,
     onBack: () -> Unit,
     onSeedCatalog: () -> Unit,
     onSyncSubscriptionSchemas: () -> Unit,
-    onSaveCatalogItem: (CatalogItem) -> Unit,
+    onPrepareSeriesEditor: (String?) -> Unit,
+    onSaveCatalogItem: (CatalogItem, () -> Unit) -> Unit,
+    onSaveSeriesWithSeasons: (
+        series: CatalogItem,
+        seasons: List<SeasonDraft>,
+        removedSeasonIds: Set<String>,
+        removedEpisodeRefs: List<Pair<String, String>>,
+        onComplete: () -> Unit
+    ) -> Unit,
     onDeleteCatalogItem: (String, String) -> Unit,
     onAddSeason: (contentId: String, Season) -> Unit,
     onAddEpisode: (contentId: String, seasonId: String, Episode) -> Unit,
@@ -120,7 +136,7 @@ fun AdminDashboardScreen(
 
     var selectedTab by remember { mutableIntStateOf(0) }
     var editingItem by remember { mutableStateOf<CatalogItem?>(null) }
-    var showCreateDialog by remember { mutableStateOf(false) }
+    var createMediaType by remember { mutableStateOf<String?>(null) }
     var managingSeries by remember { mutableStateOf<CatalogItem?>(null) }
     var showAddGenreDialog by remember { mutableStateOf(false) }
 
@@ -129,7 +145,7 @@ fun AdminDashboardScreen(
         floatingActionButton = {
             if (selectedTab == 1) {
                 FloatingActionButton(
-                    onClick = { showCreateDialog = true },
+                    onClick = { createMediaType = "movie" },
                     containerColor = VeloraCrimson,
                     contentColor = Color.White,
                     modifier = Modifier.testTag("admin_add_content_fab")
@@ -227,7 +243,41 @@ fun AdminDashboardScreen(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Button(
+                                    onClick = { createMediaType = "movie" },
+                                    colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("admin_add_movie_button")
+                                ) {
+                                    Icon(Icons.Filled.Movie, contentDescription = null, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Add Movie")
+                                }
+                                OutlinedButton(
+                                    onClick = {
+                                        onPrepareSeriesEditor(null)
+                                        createMediaType = "series"
+                                    },
+                                    border = BorderStroke(1.dp, VeloraCrimson),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("admin_add_series_button")
+                                ) {
+                                    Icon(Icons.Filled.LiveTv, contentDescription = null, tint = VeloraCrimson, modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.width(6.dp))
+                                    Text("Add TV Show", color = VeloraCrimson)
+                                }
+                            }
+                        }
+
                         items(catalog, key = { it.id }) { item ->
+                            val sourceTypeLabel = VideoSourceType.fromKey(item.videoSourceType).label
                             Surface(
                                 color = VeloraSurfaceElevated,
                                 shape = RoundedCornerShape(12.dp),
@@ -244,17 +294,33 @@ fun AdminDashboardScreen(
                                         horizontalArrangement = Arrangement.SpaceBetween,
                                         verticalAlignment = Alignment.CenterVertically
                                     ) {
-                                        Column(Modifier.weight(1f)) {
+                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                             Text(item.title, style = MaterialTheme.typography.titleMedium, color = VeloraOnBackground)
-                                            Text(
-                                                text = "${if (item.isSeries) "Series" else "Movie"} • ${item.releaseYear} • ${item.ageRating}",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = VeloraOnSurfaceMuted
-                                            )
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Text(
+                                                    text = "${if (item.isSeries) "TV Show" else "Movie"} • ${item.releaseYear} • ${item.ageRating}",
+                                                    style = MaterialTheme.typography.bodySmall,
+                                                    color = VeloraOnSurfaceMuted
+                                                )
+                                                Surface(
+                                                    color = VeloraCoral.copy(alpha = 0.16f),
+                                                    shape = RoundedCornerShape(6.dp)
+                                                ) {
+                                                    Text(
+                                                        text = sourceTypeLabel,
+                                                        style = MaterialTheme.typography.labelSmall,
+                                                        color = VeloraCoral,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
                                         }
                                         Row {
                                             IconButton(onClick = {
-                                                onSaveCatalogItem(item.copy(isFeatured = !item.isFeatured))
+                                                onSaveCatalogItem(item.copy(isFeatured = !item.isFeatured)) {}
                                             }) {
                                                 Icon(
                                                     Icons.Filled.Star,
@@ -263,7 +329,7 @@ fun AdminDashboardScreen(
                                                 )
                                             }
                                             IconButton(onClick = {
-                                                onSaveCatalogItem(item.copy(isVisible = !item.isVisible))
+                                                onSaveCatalogItem(item.copy(isVisible = !item.isVisible)) {}
                                             }) {
                                                 Icon(
                                                     imageVector = if (item.isVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
@@ -271,7 +337,12 @@ fun AdminDashboardScreen(
                                                     tint = if (item.isVisible) VeloraMatchGreen else VeloraError
                                                 )
                                             }
-                                            IconButton(onClick = { editingItem = item }) {
+                                            IconButton(onClick = {
+                                                if (item.isSeries) {
+                                                    onPrepareSeriesEditor(item.id)
+                                                }
+                                                editingItem = item
+                                            }) {
                                                 Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = VeloraOnBackground)
                                             }
                                             IconButton(onClick = { onDeleteCatalogItem(item.id, item.title) }) {
@@ -280,11 +351,22 @@ fun AdminDashboardScreen(
                                         }
                                     }
                                     if (item.isSeries) {
-                                        OutlinedButton(
-                                            onClick = { managingSeries = item },
-                                            border = BorderStroke(1.dp, VeloraOutline)
-                                        ) {
-                                            Text("Add Season / Episode", color = VeloraOnBackground)
+                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    onPrepareSeriesEditor(item.id)
+                                                    editingItem = item
+                                                },
+                                                border = BorderStroke(1.dp, VeloraOutline)
+                                            ) {
+                                                Text("Manage Seasons & Episodes", color = VeloraOnBackground)
+                                            }
+                                            OutlinedButton(
+                                                onClick = { managingSeries = item },
+                                                border = BorderStroke(1.dp, VeloraOutline)
+                                            ) {
+                                                Text("Quick Add Ep", color = VeloraGold)
+                                            }
                                         }
                                     }
                                 }
@@ -381,24 +463,30 @@ fun AdminDashboardScreen(
         }
     }
 
-    if (showCreateDialog) {
-        CatalogEditorDialog(
-            initial = null,
-            onDismiss = { showCreateDialog = false },
-            onSave = {
-                onSaveCatalogItem(it)
-                showCreateDialog = false
-            }
-        )
-    }
-
-    editingItem?.let { item ->
-        CatalogEditorDialog(
-            initial = item,
-            onDismiss = { editingItem = null },
-            onSave = {
-                onSaveCatalogItem(it)
+    if (createMediaType != null || editingItem != null) {
+        val activeEditing = editingItem
+        AdminCatalogEditorDialog(
+            initial = activeEditing,
+            initialMediaType = activeEditing?.mediaType ?: (createMediaType ?: "movie"),
+            availableGenres = genres,
+            loadedSeriesSeasons = loadedSeriesSeasons,
+            isLoadingSeriesSeasons = isLoadingSeriesSeasons,
+            isSaving = isSavingCatalog,
+            onDismiss = {
+                createMediaType = null
                 editingItem = null
+            },
+            onSaveMovie = { itemToSave ->
+                onSaveCatalogItem(itemToSave) {
+                    createMediaType = null
+                    editingItem = null
+                }
+            },
+            onSaveSeries = { series, seasonDrafts, removedSeasonIds, removedEpisodeRefs ->
+                onSaveSeriesWithSeasons(series, seasonDrafts, removedSeasonIds, removedEpisodeRefs) {
+                    createMediaType = null
+                    editingItem = null
+                }
             }
         )
     }
@@ -663,114 +751,6 @@ private fun StatCard(label: String, value: String, modifier: Modifier = Modifier
 }
 
 @Composable
-private fun CatalogEditorDialog(
-    initial: CatalogItem?,
-    onDismiss: () -> Unit,
-    onSave: (CatalogItem) -> Unit
-) {
-    var title by remember { mutableStateOf(initial?.title ?: "") }
-    var synopsis by remember { mutableStateOf(initial?.synopsis ?: "") }
-    var mediaType by remember { mutableStateOf(initial?.mediaType ?: "movie") }
-    var genresText by remember { mutableStateOf(initial?.genres?.joinToString(", ") ?: "Sci-Fi, Thriller") }
-    var releaseYear by remember { mutableStateOf((initial?.releaseYear ?: 2026).toString()) }
-    var runtime by remember { mutableStateOf((initial?.runtimeMinutes ?: 95).toString()) }
-    var ageRating by remember { mutableStateOf(initial?.ageRating ?: "PG-13") }
-    var director by remember { mutableStateOf(initial?.director ?: "Notflix Studios") }
-    var castText by remember { mutableStateOf(initial?.cast?.joinToString(", ") ?: "") }
-    var posterUrl by remember { mutableStateOf(initial?.posterUrl ?: "") }
-    var backdropUrl by remember { mutableStateOf(initial?.backdropUrl ?: "") }
-    var videoUrl by remember { mutableStateOf(initial?.videoUrl ?: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4") }
-    var hlsUrl by remember { mutableStateOf(initial?.hlsUrl ?: "") }
-    var trailerUrl by remember { mutableStateOf(initial?.trailerUrl ?: "") }
-    var isFeatured by remember { mutableStateOf(initial?.isFeatured ?: false) }
-    var isVisible by remember { mutableStateOf(initial?.isVisible ?: true) }
-    var isKidsFriendly by remember { mutableStateOf(initial?.isKidsFriendly ?: false) }
-    var errorMsg by remember { mutableStateOf<String?>(null) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        containerColor = VeloraSurfaceElevated,
-        title = { Text(if (initial == null) "Add Title" else "Edit Title", color = VeloraOnBackground) },
-        text = {
-            Column(
-                modifier = Modifier.verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    FilterChip(selected = mediaType == "movie", onClick = { mediaType = "movie" }, label = { Text("Movie") })
-                    FilterChip(selected = mediaType == "series", onClick = { mediaType = "series" }, label = { Text("TV Show") })
-                }
-                OutlinedTextField(value = title, onValueChange = { title = it }, label = { Text("Title*") }, singleLine = true)
-                OutlinedTextField(value = synopsis, onValueChange = { synopsis = it }, label = { Text("Synopsis*") }, minLines = 2)
-                OutlinedTextField(value = genresText, onValueChange = { genresText = it }, label = { Text("Genres (comma-separated)") }, singleLine = true)
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = releaseYear, onValueChange = { releaseYear = it }, label = { Text("Year") }, modifier = Modifier.weight(1f), singleLine = true)
-                    OutlinedTextField(value = runtime, onValueChange = { runtime = it }, label = { Text("Mins") }, modifier = Modifier.weight(1f), singleLine = true)
-                    OutlinedTextField(value = ageRating, onValueChange = { ageRating = it }, label = { Text("Rating") }, modifier = Modifier.weight(1f), singleLine = true)
-                }
-                OutlinedTextField(value = director, onValueChange = { director = it }, label = { Text("Director") }, singleLine = true)
-                OutlinedTextField(value = castText, onValueChange = { castText = it }, label = { Text("Cast (comma-separated)") }, singleLine = true)
-                OutlinedTextField(value = videoUrl, onValueChange = { videoUrl = it }, label = { Text("MP4 Video URL*") }, singleLine = true)
-                OutlinedTextField(value = hlsUrl, onValueChange = { hlsUrl = it }, label = { Text("HLS (.m3u8) URL (Optional)") }, singleLine = true)
-                OutlinedTextField(value = trailerUrl, onValueChange = { trailerUrl = it }, label = { Text("Trailer URL (Optional)") }, singleLine = true)
-                OutlinedTextField(value = posterUrl, onValueChange = { posterUrl = it }, label = { Text("Poster Image URL (Optional)") }, singleLine = true)
-                OutlinedTextField(value = backdropUrl, onValueChange = { backdropUrl = it }, label = { Text("Backdrop Image URL (Optional)") }, singleLine = true)
-
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Featured on Home", color = VeloraOnBackground)
-                    Switch(checked = isFeatured, onCheckedChange = { isFeatured = it })
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Visible to Users", color = VeloraOnBackground)
-                    Switch(checked = isVisible, onCheckedChange = { isVisible = it })
-                }
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Kids Friendly", color = VeloraOnBackground)
-                    Switch(checked = isKidsFriendly, onCheckedChange = { isKidsFriendly = it })
-                }
-
-                errorMsg?.let { Text(it, color = VeloraError, style = MaterialTheme.typography.bodySmall) }
-            }
-        },
-        confirmButton = {
-            Button(
-                onClick = {
-                    if (title.isBlank() || synopsis.isBlank() || videoUrl.isBlank()) {
-                        errorMsg = "Title, synopsis, and video URL are required"
-                    } else {
-                        onSave(
-                            (initial ?: CatalogItem()).copy(
-                                title = title.trim(),
-                                synopsis = synopsis.trim(),
-                                mediaType = mediaType,
-                                genres = genresText.split(",").map { it.trim() }.filter { it.isNotBlank() }.ifEmpty { listOf("Drama") },
-                                releaseYear = releaseYear.toIntOrNull() ?: 2026,
-                                runtimeMinutes = runtime.toIntOrNull() ?: 95,
-                                ageRating = ageRating.ifBlank { "PG-13" },
-                                director = director.ifBlank { "Notflix Studios" },
-                                cast = castText.split(",").map { it.trim() }.filter { it.isNotBlank() },
-                                posterUrl = posterUrl.takeIf { it.isNotBlank() },
-                                backdropUrl = backdropUrl.takeIf { it.isNotBlank() },
-                                videoUrl = videoUrl.trim(),
-                                hlsUrl = hlsUrl.takeIf { it.isNotBlank() },
-                                trailerUrl = trailerUrl.takeIf { it.isNotBlank() },
-                                isFeatured = isFeatured,
-                                isVisible = isVisible,
-                                isKidsFriendly = isKidsFriendly
-                            )
-                        )
-                    }
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)
-            ) { Text("Save Title") }
-        },
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel", color = VeloraOnSurfaceMuted) }
-        }
-    )
-}
-
-@Composable
 private fun SeriesEpisodeManagerDialog(
     series: CatalogItem,
     onDismiss: () -> Unit,
@@ -783,58 +763,123 @@ private fun SeriesEpisodeManagerDialog(
     var epTitle by remember { mutableStateOf("") }
     var epSynopsis by remember { mutableStateOf("") }
     var epRuntime by remember { mutableStateOf("42") }
-    var epVideoUrl by remember { mutableStateOf("https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4") }
+    var epSourceType by remember { mutableStateOf(VideoSourceType.MP4) }
+    var epVideoUrl by remember { mutableStateOf("") }
+    var errorMsg by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
         onDismissRequest = onDismiss,
         containerColor = VeloraSurfaceElevated,
-        title = { Text("Manage ${series.title}", color = VeloraOnBackground) },
+        title = { Text("Quick Add Episode • ${series.title}", color = VeloraOnBackground) },
         text = {
             Column(
                 modifier = Modifier.verticalScroll(rememberScrollState()),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Text("Create Season", style = MaterialTheme.typography.titleSmall, color = VeloraGold)
+                Text("Season", style = MaterialTheme.typography.titleSmall, color = VeloraGold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = seasonNum, onValueChange = { seasonNum = it }, label = { Text("#") }, modifier = Modifier.width(68.dp), singleLine = true)
-                    OutlinedTextField(value = seasonTitle, onValueChange = { seasonTitle = it }, label = { Text("Season Title") }, modifier = Modifier.weight(1f), singleLine = true)
+                    OutlinedTextField(
+                        value = seasonNum,
+                        onValueChange = { seasonNum = it.filter { c -> c.isDigit() }.take(3) },
+                        label = { Text("#") },
+                        modifier = Modifier.width(68.dp),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = seasonTitle,
+                        onValueChange = { seasonTitle = it },
+                        label = { Text("Season Title") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
                 }
                 OutlinedButton(onClick = {
                     val sNum = seasonNum.toIntOrNull() ?: 1
-                    onAddSeason(Season(id = "season-$sNum", seasonNumber = sNum, title = seasonTitle, year = series.releaseYear, isVisible = true))
+                    onAddSeason(
+                        Season(
+                            id = "season-$sNum",
+                            seasonNumber = sNum,
+                            title = seasonTitle.trim().ifBlank { "Season $sNum" },
+                            year = series.releaseYear,
+                            isVisible = true
+                        )
+                    )
                 }) { Text("Save Season", color = VeloraOnBackground) }
 
                 Spacer(Modifier.height(6.dp))
-                Text("Add Episode to Season $seasonNum", style = MaterialTheme.typography.titleSmall, color = VeloraGold)
+                Text("Add Episode to Season ${seasonNum.ifBlank { "1" }}", style = MaterialTheme.typography.titleSmall, color = VeloraGold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = epNum, onValueChange = { epNum = it }, label = { Text("Ep #") }, modifier = Modifier.width(76.dp), singleLine = true)
-                    OutlinedTextField(value = epRuntime, onValueChange = { epRuntime = it }, label = { Text("Mins") }, modifier = Modifier.width(86.dp), singleLine = true)
+                    OutlinedTextField(
+                        value = epNum,
+                        onValueChange = { epNum = it.filter { c -> c.isDigit() }.take(4) },
+                        label = { Text("Ep #*") },
+                        modifier = Modifier.width(76.dp),
+                        singleLine = true
+                    )
+                    OutlinedTextField(
+                        value = epRuntime,
+                        onValueChange = { epRuntime = it.filter { c -> c.isDigit() }.take(4) },
+                        label = { Text("Mins*") },
+                        modifier = Modifier.width(86.dp),
+                        singleLine = true
+                    )
                 }
-                OutlinedTextField(value = epTitle, onValueChange = { epTitle = it }, label = { Text("Episode Title") }, singleLine = true)
-                OutlinedTextField(value = epSynopsis, onValueChange = { epSynopsis = it }, label = { Text("Episode Synopsis") }, minLines = 2)
-                OutlinedTextField(value = epVideoUrl, onValueChange = { epVideoUrl = it }, label = { Text("Episode Stream URL") }, singleLine = true)
+                OutlinedTextField(value = epTitle, onValueChange = { epTitle = it }, label = { Text("Episode Title*") }, singleLine = true)
+                OutlinedTextField(value = epSynopsis, onValueChange = { epSynopsis = it }, label = { Text("Episode Description*") }, minLines = 2)
+
+                VideoSourceSelectorRow(
+                    selectedType = epSourceType,
+                    onSelectType = { epSourceType = it },
+                    tagPrefix = "quick_ep_type"
+                )
+                OutlinedTextField(
+                    value = epVideoUrl,
+                    onValueChange = { epVideoUrl = it },
+                    label = { Text("Episode ${epSourceType.label} URL*") },
+                    placeholder = { Text(placeholderForSourceType(epSourceType)) },
+                    singleLine = true
+                )
+                SourceValidationBadge(
+                    url = epVideoUrl,
+                    sourceType = epSourceType,
+                    required = true
+                )
+                errorMsg?.let { Text(it, color = VeloraError, style = MaterialTheme.typography.bodySmall) }
             }
         },
         confirmButton = {
             Button(
                 onClick = {
-                    val sNum = seasonNum.toIntOrNull() ?: 1
-                    val eNum = epNum.toIntOrNull() ?: 1
-                    if (epTitle.isNotBlank() && epVideoUrl.isNotBlank()) {
-                        onAddEpisode(
-                            "season-$sNum",
-                            Episode(
-                                seasonNumber = sNum,
-                                episodeNumber = eNum,
-                                title = epTitle.trim(),
-                                synopsis = epSynopsis.ifBlank { "Episode $eNum" },
-                                runtimeMinutes = epRuntime.toIntOrNull() ?: 42,
-                                thumbnailKey = series.backdropKey,
-                                videoUrl = epVideoUrl.trim(),
-                                isVisible = true
+                    val sNum = seasonNum.toIntOrNull()
+                    val eNum = epNum.toIntOrNull()
+                    val mins = epRuntime.toIntOrNull()
+                    val check = VideoSourceUtils.validateVideoSource(epVideoUrl, epSourceType, required = true)
+                    when {
+                        sNum == null || sNum < 1 -> errorMsg = "Enter a valid season number."
+                        eNum == null || eNum < 1 -> errorMsg = "Enter a valid episode number."
+                        epTitle.isBlank() -> errorMsg = "Episode title is required."
+                        mins == null || mins < 1 -> errorMsg = "Enter runtime in minutes."
+                        !check.isValid -> errorMsg = check.errorOrNull
+                        else -> {
+                            val cleanUrl = epVideoUrl.trim()
+                            onAddEpisode(
+                                "season-$sNum",
+                                Episode(
+                                    id = "s${sNum}e$eNum",
+                                    seasonNumber = sNum,
+                                    episodeNumber = eNum,
+                                    title = epTitle.trim(),
+                                    synopsis = epSynopsis.trim().ifBlank { "Episode $eNum" },
+                                    runtimeMinutes = mins,
+                                    thumbnailKey = series.backdropKey,
+                                    videoUrl = cleanUrl,
+                                    videoSourceType = epSourceType.key,
+                                    hlsUrl = if (epSourceType == VideoSourceType.HLS) cleanUrl else null,
+                                    isVisible = true
+                                )
                             )
-                        )
-                        onDismiss()
+                            onDismiss()
+                        }
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)

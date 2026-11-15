@@ -188,6 +188,7 @@ data class CatalogItem(
     val backdropUrl: String? = null,
     val trailerUrl: String? = null,
     val videoUrl: String = "",
+    val videoSourceType: String = "mp4", // "youtube" | "mp4" | "hls"
     val hlsUrl: String? = null,
     val isFeatured: Boolean = false,
     val isVisible: Boolean = true,
@@ -200,9 +201,14 @@ data class CatalogItem(
     val isSeries: Boolean get() = mediaType == "series"
 
     val preferredStreamUrl: String
-        get() = hlsUrl?.takeIf { it.isNotBlank() } ?: videoUrl
+        get() = when (videoSourceType.lowercase()) {
+            "youtube" -> videoUrl
+            "hls" -> hlsUrl?.takeIf { it.isNotBlank() } ?: videoUrl
+            else -> videoUrl.ifBlank { hlsUrl.orEmpty() }
+        }
 
     fun toWriteMap(isCreate: Boolean): Map<String, Any> = buildMap {
+        val normalizedType = com.example.util.VideoSourceType.fromKey(videoSourceType).key
         put("title", title.trim().take(200))
         put("synopsis", synopsis.trim().take(2000))
         put("mediaType", if (mediaType == "series") "series" else "movie")
@@ -213,12 +219,29 @@ data class CatalogItem(
         put("director", director.trim().ifBlank { "Notflix Studios" }.take(120))
         put("cast", cast.filter { it.isNotBlank() }.take(12))
         put("posterKey", posterKey.ifBlank { "img_poster_chronicle" })
-        if (!posterUrl.isNullOrBlank()) put("posterUrl", posterUrl.trim())
+        if (!posterUrl.isNullOrBlank()) {
+            put("posterUrl", posterUrl.trim())
+        } else if (!isCreate) {
+            put("posterUrl", FieldValue.delete())
+        }
         put("backdropKey", backdropKey.ifBlank { "img_hero_nebula" })
-        if (!backdropUrl.isNullOrBlank()) put("backdropUrl", backdropUrl.trim())
-        if (!trailerUrl.isNullOrBlank()) put("trailerUrl", trailerUrl.trim())
+        if (!backdropUrl.isNullOrBlank()) {
+            put("backdropUrl", backdropUrl.trim())
+        } else if (!isCreate) {
+            put("backdropUrl", FieldValue.delete())
+        }
+        if (!trailerUrl.isNullOrBlank()) {
+            put("trailerUrl", trailerUrl.trim())
+        } else if (!isCreate) {
+            put("trailerUrl", FieldValue.delete())
+        }
         put("videoUrl", videoUrl.trim())
-        if (!hlsUrl.isNullOrBlank()) put("hlsUrl", hlsUrl.trim())
+        put("videoSourceType", normalizedType)
+        if (!hlsUrl.isNullOrBlank()) {
+            put("hlsUrl", hlsUrl.trim())
+        } else if (!isCreate) {
+            put("hlsUrl", FieldValue.delete())
+        }
         put("isFeatured", isFeatured)
         put("isVisible", isVisible)
         put("isKidsFriendly", isKidsFriendly)
@@ -262,29 +285,49 @@ data class Episode(
     val thumbnailKey: String = "img_hero_nebula",
     val thumbnailUrl: String? = null,
     val videoUrl: String = "",
+    val videoSourceType: String = "mp4", // "youtube" | "mp4" | "hls"
     val hlsUrl: String? = null,
     val isVisible: Boolean = true,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
     val preferredStreamUrl: String
-        get() = hlsUrl?.takeIf { it.isNotBlank() } ?: videoUrl
+        get() = when (videoSourceType.lowercase()) {
+            "youtube" -> videoUrl
+            "hls" -> hlsUrl?.takeIf { it.isNotBlank() } ?: videoUrl
+            else -> videoUrl.ifBlank { hlsUrl.orEmpty() }
+        }
 
     fun toWriteMap(isCreate: Boolean): Map<String, Any> = buildMap {
+        val normalizedType = com.example.util.VideoSourceType.fromKey(videoSourceType).key
         put("seasonNumber", seasonNumber.coerceIn(1, 100))
         put("episodeNumber", episodeNumber.coerceIn(1, 1000))
         put("title", title.trim().take(200))
         put("synopsis", synopsis.trim().ifBlank { "Episode $episodeNumber" }.take(1500))
         put("runtimeMinutes", runtimeMinutes.coerceIn(1, 600))
         put("thumbnailKey", thumbnailKey.ifBlank { "img_hero_nebula" })
-        if (!thumbnailUrl.isNullOrBlank()) put("thumbnailUrl", thumbnailUrl.trim())
+        if (!thumbnailUrl.isNullOrBlank()) {
+            put("thumbnailUrl", thumbnailUrl.trim())
+        } else if (!isCreate) {
+            put("thumbnailUrl", FieldValue.delete())
+        }
         put("videoUrl", videoUrl.trim())
-        if (!hlsUrl.isNullOrBlank()) put("hlsUrl", hlsUrl.trim())
+        put("videoSourceType", normalizedType)
+        if (!hlsUrl.isNullOrBlank()) {
+            put("hlsUrl", hlsUrl.trim())
+        } else if (!isCreate) {
+            put("hlsUrl", FieldValue.delete())
+        }
         put("isVisible", isVisible)
         if (isCreate) put("createdAt", FieldValue.serverTimestamp())
         put("updatedAt", FieldValue.serverTimestamp())
     }
 }
+
+data class SeasonDraft(
+    val season: Season,
+    val episodes: List<Episode>
+)
 
 @IgnoreExtraProperties
 data class Genre(

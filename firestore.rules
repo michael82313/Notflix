@@ -143,6 +143,7 @@ service cloud.firestore {
              (!('backdropUrl' in data) || data.backdropUrl == null || (data.backdropUrl is string && data.backdropUrl.size() <= 1000)) &&
              (!('trailerUrl' in data) || data.trailerUrl == null || (data.trailerUrl is string && data.trailerUrl.size() <= 1000)) &&
              data.videoUrl is string && data.videoUrl.size() <= 1000 &&
+             (!('videoSourceType' in data) || data.videoSourceType in ['youtube', 'mp4', 'hls']) &&
              (!('hlsUrl' in data) || data.hlsUrl == null || (data.hlsUrl is string && data.hlsUrl.size() <= 1000)) &&
              data.isFeatured is bool &&
              data.isVisible is bool &&
@@ -171,6 +172,7 @@ service cloud.firestore {
              data.thumbnailKey is string && data.thumbnailKey.size() <= 128 &&
              (!('thumbnailUrl' in data) || data.thumbnailUrl == null || (data.thumbnailUrl is string && data.thumbnailUrl.size() <= 1000)) &&
              data.videoUrl is string && data.videoUrl.size() <= 1000 &&
+             (!('videoSourceType' in data) || data.videoSourceType in ['youtube', 'mp4', 'hls']) &&
              (!('hlsUrl' in data) || data.hlsUrl == null || (data.hlsUrl is string && data.hlsUrl.size() <= 1000)) &&
              data.isVisible is bool &&
              isValidTimestamp(data.createdAt) &&
@@ -387,26 +389,26 @@ service cloud.firestore {
     }
 
     match /catalog/{contentId} {
-      allow get: if isValidId(contentId) && isSignedIn() && (existing().isVisible == true || isAdmin());
-      allow list: if isSignedIn() && (resource.data.isVisible == true || isAdmin());
+      allow get: if isValidId(contentId) && isSignedIn() && (isAdmin() || (resource != null && existing().isVisible == true));
+      allow list: if isSignedIn() && (isAdmin() || resource.data.isVisible == true);
 
       allow create: if isValidId(contentId) &&
                        isAdmin() &&
                        incoming().keys().hasAll(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'backdropKey', 'videoUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'videoSourceType', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'createdAt', 'updatedAt']) &&
                        isValidCatalogItem(incoming());
 
       allow update: if isValidId(contentId) &&
                        isAdmin() &&
                        isValidCatalogItem(incoming()) &&
                        incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'updatedAt']);
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'videoSourceType', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'updatedAt']);
 
       allow delete: if isValidId(contentId) && isAdmin();
 
       match /seasons/{seasonId} {
-        allow get: if isValidId(contentId) && isValidId(seasonId) && isSignedIn() && (existing().isVisible == true || isAdmin());
-        allow list: if isValidId(contentId) && isSignedIn() && (resource.data.isVisible == true || isAdmin());
+        allow get: if isValidId(contentId) && isValidId(seasonId) && isSignedIn() && (isAdmin() || (resource != null && existing().isVisible == true));
+        allow list: if isValidId(contentId) && isSignedIn() && (isAdmin() || resource.data.isVisible == true);
 
         allow create: if isValidId(contentId) && isValidId(seasonId) &&
                          isAdmin() &&
@@ -424,21 +426,21 @@ service cloud.firestore {
         allow delete: if isValidId(contentId) && isValidId(seasonId) && isAdmin();
 
         match /episodes/{episodeId} {
-          allow get: if isValidId(contentId) && isValidId(seasonId) && isValidId(episodeId) && isSignedIn() && (existing().isVisible == true || isAdmin());
-          allow list: if isValidId(contentId) && isValidId(seasonId) && isSignedIn() && (resource.data.isVisible == true || isAdmin());
+          allow get: if isValidId(contentId) && isValidId(seasonId) && isValidId(episodeId) && isSignedIn() && (isAdmin() || (resource != null && existing().isVisible == true));
+          allow list: if isValidId(contentId) && isValidId(seasonId) && isSignedIn() && (isAdmin() || resource.data.isVisible == true);
 
           allow create: if isValidId(contentId) && isValidId(seasonId) && isValidId(episodeId) &&
                            isAdmin() &&
                            exists(/databases/$(database)/documents/catalog/$(contentId)/seasons/$(seasonId)) &&
                            incoming().keys().hasAll(['seasonNumber', 'episodeNumber', 'title', 'synopsis', 'runtimeMinutes', 'thumbnailKey', 'videoUrl', 'isVisible', 'createdAt', 'updatedAt']) &&
-                           incoming().keys().hasOnly(['seasonNumber', 'episodeNumber', 'title', 'synopsis', 'runtimeMinutes', 'thumbnailKey', 'thumbnailUrl', 'videoUrl', 'hlsUrl', 'isVisible', 'createdAt', 'updatedAt']) &&
+                           incoming().keys().hasOnly(['seasonNumber', 'episodeNumber', 'title', 'synopsis', 'runtimeMinutes', 'thumbnailKey', 'thumbnailUrl', 'videoUrl', 'videoSourceType', 'hlsUrl', 'isVisible', 'createdAt', 'updatedAt']) &&
                            isValidEpisode(incoming());
 
           allow update: if isValidId(contentId) && isValidId(seasonId) && isValidId(episodeId) &&
                            isAdmin() &&
                            isValidEpisode(incoming()) &&
                            incoming().createdAt == existing().createdAt &&
-                           incoming().diff(existing()).affectedKeys().hasOnly(['seasonNumber', 'episodeNumber', 'title', 'synopsis', 'runtimeMinutes', 'thumbnailKey', 'thumbnailUrl', 'videoUrl', 'hlsUrl', 'isVisible', 'updatedAt']);
+                           incoming().diff(existing()).affectedKeys().hasOnly(['seasonNumber', 'episodeNumber', 'title', 'synopsis', 'runtimeMinutes', 'thumbnailKey', 'thumbnailUrl', 'videoUrl', 'videoSourceType', 'hlsUrl', 'isVisible', 'updatedAt']);
 
           allow delete: if isValidId(contentId) && isValidId(seasonId) && isValidId(episodeId) && isAdmin();
         }
@@ -446,8 +448,8 @@ service cloud.firestore {
     }
 
     match /genres/{genreId} {
-      allow get: if isValidId(genreId) && isSignedIn() && (existing().isActive == true || isAdmin());
-      allow list: if isSignedIn() && (resource.data.isActive == true || isAdmin());
+      allow get: if isValidId(genreId) && isSignedIn() && (isAdmin() || (resource != null && existing().isActive == true));
+      allow list: if isSignedIn() && (isAdmin() || resource.data.isActive == true);
 
       allow create: if isValidId(genreId) &&
                        isAdmin() &&
@@ -465,8 +467,8 @@ service cloud.firestore {
     }
 
     match /subscriptionPlans/{planId} {
-      allow get: if isValidId(planId) && isSignedIn() && (existing().isActive == true || isAdmin());
-      allow list: if isSignedIn() && (resource.data.isActive == true || isAdmin());
+      allow get: if isValidId(planId) && isSignedIn() && (isAdmin() || (resource != null && existing().isActive == true));
+      allow list: if isSignedIn() && (isAdmin() || resource.data.isActive == true);
 
       allow create: if isValidId(planId) &&
                        isAdmin() &&

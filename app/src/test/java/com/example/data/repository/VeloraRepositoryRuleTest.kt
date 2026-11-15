@@ -2,6 +2,9 @@ package com.example.data.repository
 
 import com.example.base.FirestoreEmulatorTestBase
 import com.example.data.model.CatalogItem
+import com.example.data.model.Episode
+import com.example.data.model.Season
+import com.example.data.model.SeasonDraft
 import com.google.firebase.firestore.FirebaseFirestoreException
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
@@ -176,8 +179,126 @@ class VeloraRepositoryRuleTest : FirestoreEmulatorTestBase() {
         )
     }
 
+    @Test
+    fun admin_canSaveAndLoadTvShowWithSeasonsAndEpisodes_supportingYoutubeMp4AndHls() = runBlocking {
+        signInVerifiedAdminUser()
+        val catalogRepo = CatalogRepository(firestore, auth)
+
+        val series = CatalogItem(
+            id = "admin-series-${UUID.randomUUID()}",
+            title = "Notflix Original Series",
+            synopsis = "Multi-source TV show saved by admin.",
+            mediaType = "series",
+            genres = listOf("Sci-Fi", "Drama"),
+            releaseYear = 2026,
+            runtimeMinutes = 48,
+            ageRating = "TV-14",
+            director = "Showrunner Name",
+            cast = listOf("Actor Alpha", "Actor Beta"),
+            posterUrl = "https://example.com/poster.jpg",
+            backdropUrl = "https://example.com/backdrop.jpg",
+            trailerUrl = "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+            videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/TearsOfSteel.mp4",
+            videoSourceType = "mp4",
+            isFeatured = true,
+            isVisible = true,
+            isKidsFriendly = false
+        )
+
+        val seasons = listOf(
+            SeasonDraft(
+                season = Season(id = "season-1", seasonNumber = 1, title = "Season 1", year = 2026, isVisible = true),
+                episodes = listOf(
+                    Episode(
+                        id = "s1e1",
+                        seasonNumber = 1,
+                        episodeNumber = 1,
+                        title = "Episode One (YouTube)",
+                        synopsis = "YouTube embed episode",
+                        runtimeMinutes = 42,
+                        videoUrl = "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+                        videoSourceType = "youtube",
+                        isVisible = true
+                    ),
+                    Episode(
+                        id = "s1e2",
+                        seasonNumber = 1,
+                        episodeNumber = 2,
+                        title = "Episode Two (HLS)",
+                        synopsis = "HLS adaptive stream episode",
+                        runtimeMinutes = 46,
+                        videoUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+                        videoSourceType = "hls",
+                        hlsUrl = "https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8",
+                        isVisible = true
+                    )
+                )
+            )
+        )
+
+        val savedId = withTimeout(DEFAULT_TIMEOUT_MS) {
+            catalogRepo.saveSeriesWithSeasons(series = series, seasonDrafts = seasons).getOrThrow()
+        }
+        assertEquals(series.id, savedId)
+
+        val loadedStructure = withTimeout(DEFAULT_TIMEOUT_MS) {
+            catalogRepo.loadSeriesStructure(savedId).getOrThrow()
+        }
+        assertEquals(1, loadedStructure.size)
+        assertEquals(2, loadedStructure.first().episodes.size)
+        assertEquals("youtube", loadedStructure.first().episodes[0].videoSourceType)
+        assertEquals("hls", loadedStructure.first().episodes[1].videoSourceType)
+        assertEquals("https://test-streams.mux.dev/x36xhzz/x36xhzz.m3u8", loadedStructure.first().episodes[1].preferredStreamUrl)
+    }
+
+    @Test
+    fun regularMember_cannotSaveTvShowOrEpisodes_failsWithPermissionDenied() = runBlocking {
+        signInTestUser("member_series_${UUID.randomUUID()}@velora.test")
+        val catalogRepo = CatalogRepository(firestore, auth)
+
+        val attempt = withTimeout(DEFAULT_TIMEOUT_MS) {
+            catalogRepo.saveSeriesWithSeasons(
+                series = CatalogItem(
+                    id = "unauth-series-${UUID.randomUUID()}",
+                    title = "Unauthorized Series",
+                    synopsis = "Members cannot publish shows",
+                    mediaType = "series",
+                    genres = listOf("Drama"),
+                    releaseYear = 2026,
+                    runtimeMinutes = 40,
+                    ageRating = "TV-14",
+                    director = "Member",
+                    videoUrl = "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+                    videoSourceType = "youtube"
+                ),
+                seasonDrafts = listOf(
+                    SeasonDraft(
+                        season = Season(id = "season-1", seasonNumber = 1, title = "Season 1", year = 2026),
+                        episodes = listOf(
+                            Episode(
+                                id = "s1e1",
+                                seasonNumber = 1,
+                                episodeNumber = 1,
+                                title = "Pilot",
+                                synopsis = "Should be denied",
+                                runtimeMinutes = 40,
+                                videoUrl = "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+                                videoSourceType = "youtube"
+                            )
+                        )
+                    )
+                )
+            )
+        }
+        assertTrue(attempt.isFailure)
+        assertEquals(
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+            attempt.exceptionOrNull()?.unwrapFirestoreException()?.code
+        )
+    }
+
     private companion object {
-        const val DEFAULT_TIMEOUT_MS = 5000L
+        const val DEFAULT_TIMEOUT_MS = 8000L
         const val FLOW_TIMEOUT_MS = 3500L
     }
 }

@@ -8,6 +8,7 @@ import com.example.data.model.Episode
 import com.example.data.model.Genre
 import com.example.data.model.PlaybackProgress
 import com.example.data.model.Season
+import com.example.data.model.SeasonDraft
 import com.example.data.model.UserAccount
 import com.example.data.model.UserProfile
 import com.example.data.remote.OperationType
@@ -250,25 +251,25 @@ class CatalogRepository(
 
     suspend fun saveCatalogItem(item: CatalogItem): Result<String> = runCatching {
         requireUserId()
-        val isCreate = item.id.isBlank()
-        val docRef = if (isCreate) {
+        val isNewId = item.id.isBlank()
+        val docRef = if (isNewId) {
             db.collection("catalog").document()
         } else {
             db.collection("catalog").document(item.id)
         }
         try {
-            if (isCreate) {
+            val exists = if (isNewId) false else docRef.get().await().exists()
+            if (!exists) {
                 docRef.set(item.toWriteMap(isCreate = true)).await()
             } else {
-                val updates = item.toWriteMap(isCreate = false)
-                docRef.update(updates).await()
+                docRef.update(item.toWriteMap(isCreate = false)).await()
             }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
             handleFirestoreError(
                 e,
-                if (isCreate) OperationType.CREATE else OperationType.UPDATE,
+                if (isNewId) OperationType.CREATE else OperationType.UPDATE,
                 docRef.path
             )
             throw e
@@ -276,10 +277,132 @@ class CatalogRepository(
         docRef.id
     }
 
+    suspend fun loadSeriesStructure(contentId: String): Result<List<SeasonDraft>> = runCatching {
+        requireUserId()
+        val seasonsRef = db.collection("catalog").document(contentId).collection("seasons")
+        val remoteSeasons = try {
+            seasonsRef.get().await().toObjects(
+                Season::class.java,
+                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+            ).sortedBy { it.seasonNumber }
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.LIST, seasonsRef.path)
+            throw e
+        }
+
+        if (remoteSeasons.isEmpty()) {
+            val fallbackSeasons = SeedCatalog.defaultSeasonsForSeries(contentId)
+            return@runCatching fallbackSeasons.map { season ->
+                SeasonDraft(
+                    season = season,
+                    episodes = SeedCatalog.defaultEpisodesForSeason(contentId, season.seasonNumber)
+                )
+            }
+        }
+
+        remoteSeasons.map { season ->
+            val epRef = seasonsRef.document(season.id).collection("episodes")
+            val remoteEps = epRef.get().await().toObjects(
+                Episode::class.java,
+                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+            ).sortedBy { it.episodeNumber }
+            SeasonDraft(
+                season = season,
+                episodes = remoteEps.ifEmpty {
+                    SeedCatalog.defaultEpisodesForSeason(contentId, season.seasonNumber)
+                }
+            )
+        }
+    }
+
+    suspend fun saveSeriesWithSeasons(
+        series: CatalogItem,
+        seasonDrafts: List<SeasonDraft>,
+        removedSeasonIds: Set<String> = emptySet(),
+        removedEpisodeRefs: List<Pair<String, String>> = emptyList()
+    ): Result<String> = runCatching {
+        requireUserId()
+        val contentId = saveCatalogItem(series.copy(mediaType = "series")).getOrThrow()
+        val catalogDoc = db.collection("catalog").document(contentId)
+
+        // Delete explicitly removed episodes first
+        for ((seasonId, episodeId) in removedEpisodeRefs) {
+            if (seasonId.isNotBlank() && episodeId.isNotBlank()) {
+                val epRef = catalogDoc.collection("seasons").document(seasonId)
+                    .collection("episodes").document(episodeId)
+                try {
+                    epRef.delete().await()
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    handleFirestoreError(e, OperationType.DELETE, epRef.path)
+                    throw e
+                }
+            }
+        }
+
+        // Delete explicitly removed seasons (and their episodes)
+        for (seasonId in removedSeasonIds) {
+            if (seasonId.isNotBlank()) {
+                deleteSeason(contentId, seasonId).getOrThrow()
+            }
+        }
+
+        // Upsert each season and its episodes
+        for (draft in seasonDrafts.sortedBy { it.season.seasonNumber }) {
+            val seasonId = draft.season.id.ifBlank { "season-${draft.season.seasonNumber}" }
+            val seasonRef = catalogDoc.collection("seasons").document(seasonId)
+            try {
+                val seasonExists = seasonRef.get().await().exists()
+                if (!seasonExists) {
+                    seasonRef.set(draft.season.toWriteMap(isCreate = true)).await()
+                } else {
+                    seasonRef.update(draft.season.toWriteMap(isCreate = false)).await()
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                handleFirestoreError(e, OperationType.WRITE, seasonRef.path)
+                throw e
+            }
+
+            for (ep in draft.episodes.sortedBy { it.episodeNumber }) {
+                val resolvedEpId = ep.id.ifBlank { "s${draft.season.seasonNumber}e${ep.episodeNumber}" }
+                val epRef = seasonRef.collection("episodes").document(resolvedEpId)
+                val normalizedEp = ep.copy(seasonNumber = draft.season.seasonNumber)
+                try {
+                    val epExists = epRef.get().await().exists()
+                    if (!epExists) {
+                        epRef.set(normalizedEp.toWriteMap(isCreate = true)).await()
+                    } else {
+                        epRef.update(normalizedEp.toWriteMap(isCreate = false)).await()
+                    }
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (e: Exception) {
+                    handleFirestoreError(e, OperationType.WRITE, epRef.path)
+                    throw e
+                }
+            }
+        }
+
+        contentId
+    }
+
     suspend fun deleteCatalogItem(contentId: String): Result<Unit> = runCatching {
         requireUserId()
         val docRef = db.collection("catalog").document(contentId)
         try {
+            val seasonsSnap = docRef.collection("seasons").get().await()
+            for (seasonDoc in seasonsSnap.documents) {
+                val epsSnap = seasonDoc.reference.collection("episodes").get().await()
+                for (epDoc in epsSnap.documents) {
+                    epDoc.reference.delete().await()
+                }
+                seasonDoc.reference.delete().await()
+            }
             docRef.delete().await()
         } catch (e: CancellationException) {
             throw e
@@ -294,7 +417,12 @@ class CatalogRepository(
         val colRef = db.collection("catalog").document(contentId).collection("seasons")
         val docRef = if (season.id.isBlank()) colRef.document("season-${season.seasonNumber}") else colRef.document(season.id)
         try {
-            docRef.set(season.toWriteMap(isCreate = true)).await()
+            val exists = docRef.get().await().exists()
+            if (!exists) {
+                docRef.set(season.toWriteMap(isCreate = true)).await()
+            } else {
+                docRef.update(season.toWriteMap(isCreate = false)).await()
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -304,6 +432,24 @@ class CatalogRepository(
         docRef.id
     }
 
+    suspend fun deleteSeason(contentId: String, seasonId: String): Result<Unit> = runCatching {
+        requireUserId()
+        val seasonRef = db.collection("catalog").document(contentId)
+            .collection("seasons").document(seasonId)
+        try {
+            val eps = seasonRef.collection("episodes").get().await()
+            for (epDoc in eps.documents) {
+                epDoc.reference.delete().await()
+            }
+            seasonRef.delete().await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, seasonRef.path)
+            throw e
+        }
+    }
+
     suspend fun addEpisode(contentId: String, seasonId: String, episode: Episode): Result<String> = runCatching {
         requireUserId()
         val colRef = db.collection("catalog").document(contentId)
@@ -311,7 +457,12 @@ class CatalogRepository(
             .collection("episodes")
         val docRef = if (episode.id.isBlank()) colRef.document() else colRef.document(episode.id)
         try {
-            docRef.set(episode.toWriteMap(isCreate = true)).await()
+            val exists = docRef.get().await().exists()
+            if (!exists) {
+                docRef.set(episode.toWriteMap(isCreate = true)).await()
+            } else {
+                docRef.update(episode.toWriteMap(isCreate = false)).await()
+            }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -319,6 +470,21 @@ class CatalogRepository(
             throw e
         }
         docRef.id
+    }
+
+    suspend fun deleteEpisode(contentId: String, seasonId: String, episodeId: String): Result<Unit> = runCatching {
+        requireUserId()
+        val epRef = db.collection("catalog").document(contentId)
+            .collection("seasons").document(seasonId)
+            .collection("episodes").document(episodeId)
+        try {
+            epRef.delete().await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.DELETE, epRef.path)
+            throw e
+        }
     }
 
     suspend fun saveGenre(genre: Genre): Result<String> = runCatching {

@@ -186,6 +186,9 @@ private fun AuthenticatedVeloraApp(
     val exploreGenreFilter by viewModel.exploreGenreFilter.collectAsStateWithLifecycle()
     val exploreSort by viewModel.exploreSort.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
+    val isSavingCatalog by viewModel.isSavingCatalog.collectAsStateWithLifecycle()
+    val isLoadingSeriesStructure by viewModel.isLoadingSeriesStructure.collectAsStateWithLifecycle()
+    val editingSeriesSeasons by viewModel.editingSeriesSeasons.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -429,10 +432,15 @@ private fun AuthenticatedVeloraApp(
                         users = adminUsers,
                         subscriptionPlans = subscriptionPlans,
                         userSubscriptions = adminUserSubscriptions,
+                        isSavingCatalog = isSavingCatalog,
+                        isLoadingSeriesSeasons = isLoadingSeriesStructure,
+                        loadedSeriesSeasons = editingSeriesSeasons,
                         onBack = { navController.popBackStack() },
                         onSeedCatalog = viewModel::seedCatalogNow,
                         onSyncSubscriptionSchemas = viewModel::syncSubscriptionSchemasNow,
+                        onPrepareSeriesEditor = viewModel::prepareSeriesEditor,
                         onSaveCatalogItem = viewModel::saveCatalogItem,
+                        onSaveSeriesWithSeasons = viewModel::saveSeriesWithSeasons,
                         onDeleteCatalogItem = viewModel::deleteCatalogItem,
                         onAddSeason = viewModel::addSeason,
                         onAddEpisode = viewModel::addEpisode,
@@ -506,6 +514,11 @@ private fun AuthenticatedVeloraApp(
                             activeEp != null -> activeEp.preferredStreamUrl
                             else -> item.preferredStreamUrl
                         }
+                        val streamSourceType = when {
+                            route.isTrailer -> null
+                            activeEp != null -> activeEp.videoSourceType
+                            else -> item.videoSourceType
+                        }
                         val savedProgress = progressList.firstOrNull {
                             it.contentId == item.id && (route.episodeId == null || it.episodeId == route.episodeId)
                         }
@@ -520,6 +533,7 @@ private fun AuthenticatedVeloraApp(
                             title = item.title,
                             subtitleLabel = subtitleLabel,
                             streamUrl = streamUrl,
+                            streamSourceType = streamSourceType,
                             episodeId = activeEp?.id ?: route.episodeId,
                             seasonNumber = activeEp?.seasonNumber ?: route.seasonNumber,
                             episodeNumber = activeEp?.episodeNumber ?: route.episodeNumber,

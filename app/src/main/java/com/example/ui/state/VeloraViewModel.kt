@@ -10,6 +10,7 @@ import com.example.data.model.PlanFeature
 import com.example.data.model.PlaybackProgress
 import com.example.data.model.SearchHistoryItem
 import com.example.data.model.Season
+import com.example.data.model.SeasonDraft
 import com.example.data.model.SubscriptionCatalogDefaults
 import com.example.data.model.SubscriptionPlan
 import com.example.data.model.UiState
@@ -68,6 +69,15 @@ class VeloraViewModel(
 
     private val _statusMessage = MutableStateFlow<String?>(null)
     val statusMessage: StateFlow<String?> = _statusMessage.asStateFlow()
+
+    private val _isSavingCatalog = MutableStateFlow(false)
+    val isSavingCatalog: StateFlow<Boolean> = _isSavingCatalog.asStateFlow()
+
+    private val _isLoadingSeriesStructure = MutableStateFlow(false)
+    val isLoadingSeriesStructure: StateFlow<Boolean> = _isLoadingSeriesStructure.asStateFlow()
+
+    private val _editingSeriesSeasons = MutableStateFlow<List<SeasonDraft>>(emptyList())
+    val editingSeriesSeasons: StateFlow<List<SeasonDraft>> = _editingSeriesSeasons.asStateFlow()
 
     private val _hasSelectedProfile = MutableStateFlow(false)
     val hasSelectedProfile: StateFlow<Boolean> = _hasSelectedProfile.asStateFlow()
@@ -568,7 +578,16 @@ class VeloraViewModel(
 
     // --- Admin Actions ---
 
+    private fun requireAdminAction(): Boolean {
+        if (!isAdmin.value) {
+            _statusMessage.value = "Only administrators can modify catalog content."
+            return false
+        }
+        return true
+    }
+
     fun seedCatalogNow() {
+        if (!requireAdminAction()) return
         viewModelScope.launch {
             catalogRepository.seedDefaultCatalogIfEmpty()
                 .onSuccess { seeded ->
@@ -584,19 +603,81 @@ class VeloraViewModel(
         }
     }
 
-    fun saveCatalogItem(item: CatalogItem) {
+    fun prepareSeriesEditor(contentId: String?) {
+        if (contentId.isNullOrBlank()) {
+            _editingSeriesSeasons.value = listOf(
+                SeasonDraft(
+                    season = Season(id = "season-1", seasonNumber = 1, title = "Season 1", isVisible = true),
+                    episodes = emptyList()
+                )
+            )
+            _isLoadingSeriesStructure.value = false
+            return
+        }
         viewModelScope.launch {
+            _isLoadingSeriesStructure.value = true
+            catalogRepository.loadSeriesStructure(contentId)
+                .onSuccess { loaded ->
+                    _editingSeriesSeasons.value = loaded.ifEmpty {
+                        listOf(
+                            SeasonDraft(
+                                season = Season(id = "season-1", seasonNumber = 1, title = "Season 1", isVisible = true),
+                                episodes = emptyList()
+                            )
+                        )
+                    }
+                }
+                .onFailure {
+                    _statusMessage.value = it.localizedMessage ?: "Failed to load seasons & episodes"
+                }
+            _isLoadingSeriesStructure.value = false
+        }
+    }
+
+    fun saveCatalogItem(item: CatalogItem, onComplete: () -> Unit = {}) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            _isSavingCatalog.value = true
             catalogRepository.saveCatalogItem(item)
                 .onSuccess {
-                    _statusMessage.value = "Saved \"${item.title}\""
+                    _statusMessage.value = "Saved \"${item.title}\" to Firestore"
+                    onComplete()
                 }
                 .onFailure {
                     _statusMessage.value = it.localizedMessage ?: "Failed to save title"
                 }
+            _isSavingCatalog.value = false
+        }
+    }
+
+    fun saveSeriesWithSeasons(
+        series: CatalogItem,
+        seasonDrafts: List<SeasonDraft>,
+        removedSeasonIds: Set<String> = emptySet(),
+        removedEpisodeRefs: List<Pair<String, String>> = emptyList(),
+        onComplete: () -> Unit = {}
+    ) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            _isSavingCatalog.value = true
+            catalogRepository.saveSeriesWithSeasons(
+                series = series,
+                seasonDrafts = seasonDrafts,
+                removedSeasonIds = removedSeasonIds,
+                removedEpisodeRefs = removedEpisodeRefs
+            ).onSuccess {
+                val epCount = seasonDrafts.sumOf { it.episodes.size }
+                _statusMessage.value = "Saved \"${series.title}\" (${seasonDrafts.size} season(s), $epCount episode(s)) to Firestore"
+                onComplete()
+            }.onFailure {
+                _statusMessage.value = it.localizedMessage ?: "Failed to save TV show"
+            }
+            _isSavingCatalog.value = false
         }
     }
 
     fun deleteCatalogItem(contentId: String, title: String) {
+        if (!requireAdminAction()) return
         viewModelScope.launch {
             catalogRepository.deleteCatalogItem(contentId)
                 .onSuccess {
@@ -609,6 +690,7 @@ class VeloraViewModel(
     }
 
     fun addSeason(contentId: String, season: Season) {
+        if (!requireAdminAction()) return
         viewModelScope.launch {
             catalogRepository.addSeason(contentId, season)
                 .onSuccess { _statusMessage.value = "Added Season ${season.seasonNumber}" }
@@ -617,6 +699,7 @@ class VeloraViewModel(
     }
 
     fun addEpisode(contentId: String, seasonId: String, episode: Episode) {
+        if (!requireAdminAction()) return
         viewModelScope.launch {
             catalogRepository.addEpisode(contentId, seasonId, episode)
                 .onSuccess { _statusMessage.value = "Added Episode ${episode.episodeNumber}" }
@@ -625,6 +708,7 @@ class VeloraViewModel(
     }
 
     fun saveGenre(genre: Genre) {
+        if (!requireAdminAction()) return
         viewModelScope.launch {
             catalogRepository.saveGenre(genre)
                 .onSuccess { _statusMessage.value = "Saved genre \"${genre.name}\"" }
@@ -633,6 +717,7 @@ class VeloraViewModel(
     }
 
     fun deleteGenre(genreId: String) {
+        if (!requireAdminAction()) return
         viewModelScope.launch {
             catalogRepository.deleteGenre(genreId)
                 .onSuccess { _statusMessage.value = "Genre removed" }
@@ -641,6 +726,7 @@ class VeloraViewModel(
     }
 
     fun setUserAdminRole(target: UserAccount, makeAdmin: Boolean) {
+        if (!requireAdminAction()) return
         viewModelScope.launch {
             catalogRepository.setUserAdminRole(target, makeAdmin)
                 .onSuccess {

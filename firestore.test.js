@@ -247,6 +247,7 @@ test("Catalog visibility & admin write protection", async () => {
       posterKey: "img_poster_odyssey",
       backdropKey: "img_hero_nebula",
       videoUrl: "https://example.com/v.mp4",
+      videoSourceType: "mp4",
       isFeatured: false,
       isVisible: true,
       isKidsFriendly: false,
@@ -255,6 +256,188 @@ test("Catalog visibility & admin write protection", async () => {
       createdAt: ts,
       updatedAt: ts,
     })
+  );
+});
+
+test("Admin catalog videoSourceType validation & TV show seasons/episodes access control", async () => {
+  const ts = pastTimestamp();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await db.collection("admins").doc(ADMIN_UID).set({
+      uid: ADMIN_UID,
+      email: "admin@notflix.app",
+      grantedBy: "system",
+      createdAt: ts,
+    });
+  });
+
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID).firestore();
+
+  // Admin can create a YouTube-backed movie and update it to HLS
+  await assertSucceeds(
+    adminDb.collection("catalog").doc("yt_movie").set({
+      title: "YouTube Feature",
+      synopsis: "Official YouTube embed movie",
+      mediaType: "movie",
+      genres: ["Sci-Fi"],
+      releaseYear: 2026,
+      runtimeMinutes: 105,
+      ageRating: "PG-13",
+      director: "Notflix Studios",
+      cast: ["Actor One"],
+      posterKey: "img_poster_chronicle",
+      posterUrl: "https://example.com/poster.jpg",
+      backdropKey: "img_hero_nebula",
+      backdropUrl: "https://example.com/backdrop.jpg",
+      trailerUrl: "https://youtu.be/dQw4w9WgXcQ",
+      videoUrl: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+      videoSourceType: "youtube",
+      isFeatured: true,
+      isVisible: true,
+      isKidsFriendly: false,
+      trendingScore: 95,
+      popularityRank: 1,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  await assertSucceeds(
+    adminDb.collection("catalog").doc("yt_movie").update({
+      videoSourceType: "hls",
+      videoUrl: "https://example.com/streams/master.m3u8",
+      hlsUrl: "https://example.com/streams/master.m3u8",
+      updatedAt: ts,
+    })
+  );
+
+  // Invalid videoSourceType is rejected even for admin
+  await assertFails(
+    adminDb.collection("catalog").doc("bad_source_movie").set({
+      title: "Invalid Source",
+      synopsis: "Should fail enum check",
+      mediaType: "movie",
+      genres: ["Drama"],
+      releaseYear: 2026,
+      runtimeMinutes: 90,
+      ageRating: "PG",
+      director: "Notflix Studios",
+      cast: [],
+      posterKey: "img_poster_chronicle",
+      backdropKey: "img_hero_nebula",
+      videoUrl: "https://example.com/v.mp4",
+      videoSourceType: "torrent",
+      isFeatured: false,
+      isVisible: true,
+      isKidsFriendly: false,
+      trendingScore: 10,
+      popularityRank: 5,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  // Admin can safely check non-existent catalog/season/episode docs before creating
+  await assertSucceeds(adminDb.collection("catalog").doc("show_1").get());
+
+  // Admin can create a TV Show, Season, and Episodes with YouTube/MP4/HLS sources
+  await assertSucceeds(
+    adminDb.collection("catalog").doc("show_1").set({
+      title: "Orbital Echoes",
+      synopsis: "Anthology series",
+      mediaType: "series",
+      genres: ["Sci-Fi", "Thriller"],
+      releaseYear: 2026,
+      runtimeMinutes: 45,
+      ageRating: "TV-14",
+      director: "Notflix Studios",
+      cast: ["Cast A"],
+      posterKey: "img_poster_chronicle",
+      backdropKey: "img_hero_nebula",
+      videoUrl: "",
+      videoSourceType: "mp4",
+      isFeatured: false,
+      isVisible: true,
+      isKidsFriendly: false,
+      trendingScore: 90,
+      popularityRank: 2,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  await assertSucceeds(adminDb.collection("catalog").doc("show_1").collection("seasons").doc("season-1").get());
+  await assertSucceeds(
+    adminDb.collection("catalog").doc("show_1").collection("seasons").doc("season-1").set({
+      seasonNumber: 1,
+      title: "Season 1",
+      year: 2026,
+      isVisible: true,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  await assertSucceeds(
+    adminDb.collection("catalog").doc("show_1")
+      .collection("seasons").doc("season-1")
+      .collection("episodes").doc("s1e1").get()
+  );
+
+  await assertSucceeds(
+    adminDb.collection("catalog").doc("show_1")
+      .collection("seasons").doc("season-1")
+      .collection("episodes").doc("s1e1").set({
+        seasonNumber: 1,
+        episodeNumber: 1,
+        title: "Pilot",
+        synopsis: "First episode via YouTube",
+        runtimeMinutes: 45,
+        thumbnailKey: "img_hero_nebula",
+        videoUrl: "https://www.youtube.com/watch?v=aqz-KE-bpKQ",
+        videoSourceType: "youtube",
+        isVisible: true,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+  );
+
+  // Non-admin member can read visible seasons/episodes but CANNOT create or edit them
+  await assertSucceeds(
+    aliceDb.collection("catalog").doc("show_1")
+      .collection("seasons").doc("season-1")
+      .collection("episodes").where("isVisible", "==", true).get()
+  );
+
+  await assertFails(
+    aliceDb.collection("catalog").doc("show_1")
+      .collection("seasons").doc("season-2").set({
+        seasonNumber: 2,
+        title: "Season 2",
+        year: 2026,
+        isVisible: true,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+  );
+
+  await assertFails(
+    aliceDb.collection("catalog").doc("show_1")
+      .collection("seasons").doc("season-1")
+      .collection("episodes").doc("s1e2").set({
+        seasonNumber: 1,
+        episodeNumber: 2,
+        title: "Unauthorized Ep",
+        synopsis: "Should fail",
+        runtimeMinutes: 40,
+        thumbnailKey: "img_hero_nebula",
+        videoUrl: "https://example.com/ep2.mp4",
+        videoSourceType: "mp4",
+        isVisible: true,
+        createdAt: ts,
+        updatedAt: ts,
+      })
   );
 });
 
