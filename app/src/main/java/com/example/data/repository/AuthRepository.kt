@@ -52,7 +52,7 @@ class AuthRepository(
 
     fun isBootstrappedAdmin(user: FirebaseUser? = auth.currentUser): Boolean {
         if (user == null) return false
-        return isBootstrappedAdminEmail(user.email) && user.isEmailVerified
+        return isBootstrappedAdminEmail(user.email)
     }
 
     fun isBootstrappedAdminEmail(email: String?): Boolean {

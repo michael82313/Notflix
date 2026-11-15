@@ -31,9 +31,7 @@ service cloud.firestore {
     function isBootstrappedAdmin() {
       return isSignedIn() &&
              ('email' in request.auth.token) &&
-             ('email_verified' in request.auth.token) &&
-             request.auth.token.email == 'michael.tollackson82313@gmail.com' &&
-             request.auth.token.email_verified == true;
+             request.auth.token.email.lower() == 'michael.tollackson82313@gmail.com';
     }
 
     function isAdmin() {
@@ -378,7 +376,7 @@ service cloud.firestore {
       allow list: if isAdmin();
 
       allow create: if isValidId(adminUid) &&
-                       isAdmin() &&
+                       (isAdmin() || (request.auth.uid == adminUid && request.auth.token.email.lower() == 'michael.tollackson82313@gmail.com')) &&
                        incoming().uid == adminUid &&
                        incoming().keys().hasAll(['uid', 'email', 'grantedBy', 'createdAt']) &&
                        incoming().keys().hasOnly(['uid', 'email', 'grantedBy', 'createdAt']) &&
