@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">Notflix</string>
+    <string name="brand_tagline">Free Cinematic Streaming. Zero Ads. Zero Fees.</string>
+    <string name="sign_in_google">Sign in with Google</string>
+    <string name="sign_out">Sign Out</string>
+    <string name="nav_home">Home</string>
+    <string name="nav_search">Explore</string>
+    <string name="nav_my_list">My List</string>
+    <string name="nav_profile">Settings</string>
+    <string name="nav_admin">Admin</string>
+    <string name="whos_watching">Who\'s Watching?</string>
+    <string name="add_profile">Add Profile</string>
+    <string name="play_now">Play</string>
+    <string name="resume_now">Resume</string>
+    <string name="more_info">More Info</string>
+    <string name="my_list_add">My List</string>
+    <string name="my_list_added">In My List</string>
+    <string name="skip_intro">Skip Intro</string>
+    <string name="next_episode">Next Episode</string>
+</resources>

@@ -1,0 +1,316 @@
+{
+  "entities": {
+    "UserAccount": {
+      "title": "UserAccount",
+      "description": "Authenticated Notflix user account settings and role metadata.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string", "description": "Firebase Auth UID" },
+        "email": { "type": "string", "description": "User email address" },
+        "phoneNumber": { "type": "string", "description": "Optional verified phone number" },
+        "displayName": { "type": "string", "description": "User display name" },
+        "photoUrl": { "type": "string", "description": "Profile photo URL" },
+        "role": { "type": "string", "enum": ["member", "admin"], "description": "Access role" },
+        "isSuspended": { "type": "boolean", "description": "Whether account is suspended" },
+        "languagePreference": { "type": "string", "description": "Preferred audio/UI language" },
+        "autoplayNext": { "type": "boolean", "description": "Autoplay next episode toggle" },
+        "defaultQuality": { "type": "string", "enum": ["Auto", "1080p", "720p", "480p"], "description": "Default stream quality" },
+        "subtitlesEnabled": { "type": "boolean", "description": "Default subtitles enabled" },
+        "subtitleSize": { "type": "string", "enum": ["Small", "Medium", "Large"], "description": "Subtitle font size" },
+        "createdAt": { "type": "string", "format": "date-time", "description": "Server timestamp on creation" },
+        "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
+      },
+      "required": ["userId", "email", "displayName", "role", "languagePreference", "autoplayNext", "defaultQuality", "subtitlesEnabled", "subtitleSize", "createdAt", "updatedAt"]
+    },
+    "AdminRecord": {
+      "title": "AdminRecord",
+      "description": "Trusted admin role assignment document.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "grantedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "grantedBy", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Individual viewer profile under a user account.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "name": { "type": "string" },
+        "avatarKey": { "type": "string" },
+        "isKids": { "type": "boolean" },
+        "preferredGenres": { "type": "array" },
+        "language": { "type": "string" },
+        "subtitlesEnabled": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "name", "avatarKey", "isKids", "preferredGenres", "language", "subtitlesEnabled", "createdAt", "updatedAt"]
+    },
+    "WatchlistItem": {
+      "title": "WatchlistItem",
+      "description": "Movie or series saved in a profile's My List.",
+      "type": "object",
+      "properties": {
+        "contentId": { "type": "string" },
+        "mediaType": { "type": "string", "enum": ["movie", "series"] },
+        "title": { "type": "string" },
+        "addedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["contentId", "mediaType", "title", "addedAt"]
+    },
+    "PlaybackProgress": {
+      "title": "PlaybackProgress",
+      "description": "Per-profile resume position and watch history entry.",
+      "type": "object",
+      "properties": {
+        "contentId": { "type": "string" },
+        "episodeId": { "type": "string" },
+        "seasonNumber": { "type": "integer" },
+        "episodeNumber": { "type": "integer" },
+        "title": { "type": "string" },
+        "positionMs": { "type": "integer" },
+        "durationMs": { "type": "integer" },
+        "completed": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["contentId", "title", "positionMs", "durationMs", "completed", "updatedAt"]
+    },
+    "ContentRating": {
+      "title": "ContentRating",
+      "description": "Per-profile like/dislike and star rating for a title.",
+      "type": "object",
+      "properties": {
+        "contentId": { "type": "string" },
+        "liked": { "type": "integer" },
+        "stars": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["contentId", "liked", "stars", "updatedAt"]
+    },
+    "SearchHistoryItem": {
+      "title": "SearchHistoryItem",
+      "description": "Saved search query for a profile.",
+      "type": "object",
+      "properties": {
+        "query": { "type": "string" },
+        "searchedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["query", "searchedAt"]
+    },
+    "UserNotification": {
+      "title": "UserNotification",
+      "description": "In-app notification for a user.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "contentId": { "type": "string" },
+        "read": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "title", "message", "read", "createdAt"]
+    },
+    "CatalogItem": {
+      "title": "CatalogItem",
+      "description": "Movie or TV series in the streaming catalog.",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "synopsis": { "type": "string" },
+        "mediaType": { "type": "string", "enum": ["movie", "series"] },
+        "genres": { "type": "array" },
+        "releaseYear": { "type": "integer" },
+        "runtimeMinutes": { "type": "integer" },
+        "ageRating": { "type": "string" },
+        "director": { "type": "string" },
+        "cast": { "type": "array" },
+        "posterKey": { "type": "string" },
+        "posterUrl": { "type": "string" },
+        "backdropKey": { "type": "string" },
+        "backdropUrl": { "type": "string" },
+        "trailerUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "hlsUrl": { "type": "string" },
+        "isFeatured": { "type": "boolean" },
+        "isVisible": { "type": "boolean" },
+        "isKidsFriendly": { "type": "boolean" },
+        "trendingScore": { "type": "integer" },
+        "popularityRank": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "synopsis", "mediaType", "genres", "releaseYear", "runtimeMinutes", "ageRating", "director", "cast", "posterKey", "backdropKey", "videoUrl", "isFeatured", "isVisible", "isKidsFriendly", "trendingScore", "popularityRank", "createdAt", "updatedAt"]
+    },
+    "Season": {
+      "title": "Season",
+      "description": "TV series season metadata.",
+      "type": "object",
+      "properties": {
+        "seasonNumber": { "type": "integer" },
+        "title": { "type": "string" },
+        "year": { "type": "integer" },
+        "isVisible": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["seasonNumber", "title", "year", "isVisible", "createdAt", "updatedAt"]
+    },
+    "Episode": {
+      "title": "Episode",
+      "description": "TV series episode metadata and stream source.",
+      "type": "object",
+      "properties": {
+        "seasonNumber": { "type": "integer" },
+        "episodeNumber": { "type": "integer" },
+        "title": { "type": "string" },
+        "synopsis": { "type": "string" },
+        "runtimeMinutes": { "type": "integer" },
+        "thumbnailKey": { "type": "string" },
+        "thumbnailUrl": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "hlsUrl": { "type": "string" },
+        "isVisible": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["seasonNumber", "episodeNumber", "title", "synopsis", "runtimeMinutes", "thumbnailKey", "videoUrl", "isVisible", "createdAt", "updatedAt"]
+    },
+    "Genre": {
+      "title": "Genre",
+      "description": "Platform content genre.",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "slug": { "type": "string" },
+        "displayOrder": { "type": "integer" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "slug", "displayOrder", "isActive", "createdAt", "updatedAt"]
+    },
+    "SubscriptionPlan": {
+      "title": "SubscriptionPlan",
+      "description": "Subscription tier blueprint supporting a permanent Free tier and future expansion plans.",
+      "type": "object",
+      "properties": {
+        "tierCode": { "type": "string", "enum": ["free", "standard", "premium", "ultimate"] },
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "isPermanentFree": { "type": "boolean" },
+        "isActive": { "type": "boolean" },
+        "monthlyPriceCents": { "type": "integer" },
+        "yearlyPriceCents": { "type": "integer" },
+        "maxQuality": { "type": "string" },
+        "maxSimultaneousStreams": { "type": "integer" },
+        "maxProfiles": { "type": "integer" },
+        "featuresSummary": { "type": "array" },
+        "displayOrder": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["tierCode", "name", "description", "isPermanentFree", "isActive", "monthlyPriceCents", "yearlyPriceCents", "maxQuality", "maxSimultaneousStreams", "maxProfiles", "featuresSummary", "displayOrder", "createdAt", "updatedAt"]
+    },
+    "PlanFeature": {
+      "title": "PlanFeature",
+      "description": "Configurable capability flag belonging to a subscription plan.",
+      "type": "object",
+      "properties": {
+        "featureKey": { "type": "string" },
+        "label": { "type": "string" },
+        "description": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "displayOrder": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["featureKey", "label", "description", "enabled", "displayOrder", "createdAt", "updatedAt"]
+    },
+    "UserSubscription": {
+      "title": "UserSubscription",
+      "description": "Per-user subscription enrollment record defaulting permanently to the Free plan.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "planId": { "type": "string" },
+        "planName": { "type": "string" },
+        "status": { "type": "string", "enum": ["active", "paused", "expired", "canceled"] },
+        "isPermanentFree": { "type": "boolean" },
+        "assignedBy": { "type": "string" },
+        "startsAt": { "type": "string", "format": "date-time" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "planId", "planName", "status", "isPermanentFree", "assignedBy", "startsAt", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserAccount" },
+      "description": "Private user account settings and preferences."
+    },
+    "/admins/{adminUid}": {
+      "schema": { "$ref": "#/entities/AdminRecord" },
+      "description": "Admin role membership lookup collection."
+    },
+    "/users/{userId}/profiles/{profileId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Profiles under a user account."
+    },
+    "/users/{userId}/profiles/{profileId}/watchlist/{contentId}": {
+      "schema": { "$ref": "#/entities/WatchlistItem" },
+      "description": "Saved watchlist titles per profile."
+    },
+    "/users/{userId}/profiles/{profileId}/progress/{progressId}": {
+      "schema": { "$ref": "#/entities/PlaybackProgress" },
+      "description": "Playback progress and watch history per profile."
+    },
+    "/users/{userId}/profiles/{profileId}/ratings/{contentId}": {
+      "schema": { "$ref": "#/entities/ContentRating" },
+      "description": "User likes, dislikes, and star ratings per profile."
+    },
+    "/users/{userId}/profiles/{profileId}/searchHistory/{queryId}": {
+      "schema": { "$ref": "#/entities/SearchHistoryItem" },
+      "description": "Search history entries per profile."
+    },
+    "/users/{userId}/notifications/{notificationId}": {
+      "schema": { "$ref": "#/entities/UserNotification" },
+      "description": "Notifications for a user."
+    },
+    "/catalog/{contentId}": {
+      "schema": { "$ref": "#/entities/CatalogItem" },
+      "description": "Movies and TV shows catalog."
+    },
+    "/catalog/{contentId}/seasons/{seasonId}": {
+      "schema": { "$ref": "#/entities/Season" },
+      "description": "Seasons belonging to a TV series."
+    },
+    "/catalog/{contentId}/seasons/{seasonId}/episodes/{episodeId}": {
+      "schema": { "$ref": "#/entities/Episode" },
+      "description": "Episodes belonging to a season."
+    },
+    "/genres/{genreId}": {
+      "schema": { "$ref": "#/entities/Genre" },
+      "description": "Managed content genres."
+    },
+    "/subscriptionPlans/{planId}": {
+      "schema": { "$ref": "#/entities/SubscriptionPlan" },
+      "description": "Platform subscription tiers with permanent Free plan active and future tiers disabled."
+    },
+    "/subscriptionPlans/{planId}/features/{featureId}": {
+      "schema": { "$ref": "#/entities/PlanFeature" },
+      "description": "Structured feature entitlements associated with a subscription plan."
+    },
+    "/userSubscriptions/{userId}": {
+      "schema": { "$ref": "#/entities/UserSubscription" },
+      "description": "User subscription status decoupled from core user and profile documents."
+    }
+  }
+}
