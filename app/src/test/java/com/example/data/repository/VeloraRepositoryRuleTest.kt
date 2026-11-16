@@ -297,6 +297,45 @@ class VeloraRepositoryRuleTest : FirestoreEmulatorTestBase() {
         )
     }
 
+    @Test
+    fun admin_canInitializeAndLoadAllUsersForAdminDashboard_whileMemberCannotSelfPromote() = runBlocking {
+        val memberEmail = "member_escalate_${UUID.randomUUID()}@velora.test"
+        val memberUid = signInTestUser(memberEmail)
+        val memberAuthRepo = AuthRepository(firestore, auth)
+        val memberCatalogRepo = CatalogRepository(firestore, auth)
+
+        val memberAccount = withTimeout(DEFAULT_TIMEOUT_MS) {
+            memberAuthRepo.ensureAccountInitialized().getOrThrow()
+        }
+        assertEquals("member", memberAccount.role)
+
+        val promoteAttempt = withTimeout(DEFAULT_TIMEOUT_MS) {
+            memberCatalogRepo.setUserAdminRole(memberAccount, makeAdmin = true)
+        }
+        assertTrue(promoteAttempt.isFailure)
+        assertEquals(
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+            promoteAttempt.exceptionOrNull()?.unwrapFirestoreException()?.code
+        )
+
+        val adminUid = signInVerifiedAdminUser()
+        val adminAuthRepo = AuthRepository(firestore, auth)
+        val adminCatalogRepo = CatalogRepository(firestore, auth)
+
+        val initializedAdmin = withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminAuthRepo.ensureAccountInitialized().getOrThrow()
+        }
+        assertEquals(adminUid, initializedAdmin.userId)
+        assertEquals("admin", initializedAdmin.role)
+
+        val observedUsers = withTimeout(FLOW_TIMEOUT_MS) {
+            adminCatalogRepo.observeAllUsersForAdmin().first { users ->
+                users.any { it.userId == adminUid } && users.any { it.userId == memberUid }
+            }
+        }
+        assertTrue(observedUsers.any { it.userId == memberUid && it.role == "member" })
+    }
+
     private companion object {
         const val DEFAULT_TIMEOUT_MS = 8000L
         const val FLOW_TIMEOUT_MS = 3500L

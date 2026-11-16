@@ -136,12 +136,21 @@ test("Cross-user isolation: Bob cannot read or modify Alice's profiles or watchl
   );
 });
 
-test("Email spoofing test: unverified admin email cannot write catalog", async () => {
+test("Privilege escalation test: non-admin email cannot spoof admin record or write catalog", async () => {
   const ts = pastTimestamp();
   const spoofDb = testEnv.authenticatedContext("spoof_uid", {
-    email: "michael.tollackson82313@gmail.com",
-    email_verified: false,
+    email: "attacker@example.com",
+    email_verified: true,
   }).firestore();
+
+  await assertFails(
+    spoofDb.collection("admins").doc("spoof_uid").set({
+      uid: "spoof_uid",
+      email: "michael.tollackson82313@gmail.com",
+      grantedBy: "self",
+      createdAt: ts,
+    })
+  );
 
   await assertFails(
     spoofDb.collection("catalog").doc("movie_1").set({

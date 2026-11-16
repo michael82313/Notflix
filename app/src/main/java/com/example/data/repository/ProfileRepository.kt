@@ -11,6 +11,7 @@ import com.example.data.model.PlaybackProgress
 import com.example.data.model.SearchHistoryItem
 import com.example.data.model.UserProfile
 import com.example.data.model.WatchlistItem
+import com.example.data.remote.FirestoreDocumentMapper
 import com.example.data.remote.OperationType
 import com.example.data.remote.handleFirestoreError
 import com.google.firebase.Firebase
@@ -69,10 +70,8 @@ class ProfileRepository(
         val colRef = db.collection("users").document(userId).collection("profiles")
         return colRef.snapshots()
             .map { snapshot ->
-                snapshot.toObjects(
-                    UserProfile::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                ).sortedBy { it.createdAt?.seconds ?: 0L }
+                FirestoreDocumentMapper.toUserProfiles(snapshot)
+                    .sortedBy { it.createdAt?.seconds ?: 0L }
             }
             .catch { error ->
                 val firestoreError = generateSequence(error) { it.cause }
@@ -91,10 +90,7 @@ class ProfileRepository(
             val uid = requireUserId()
             require(uid == userId) { "UID mismatch" }
             val colRef = db.collection("users").document(userId).collection("profiles")
-            val existing = colRef.get().await().toObjects(
-                UserProfile::class.java,
-                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-            )
+            val existing = FirestoreDocumentMapper.toUserProfiles(colRef.get().await())
             if (existing.isNotEmpty()) return@runCatching existing
 
             val mainProfile = UserProfile(
@@ -208,6 +204,7 @@ class ProfileRepository(
         subtitlesEnabled: Boolean
     ): Result<Unit> = runCatching {
         requireUserId()
+        require(targetUserId.isNotBlank() && profileId.isNotBlank()) { "Invalid user or profile ID." }
         val docRef = db.collection("users").document(targetUserId)
             .collection("profiles").document(profileId)
         val updates = mapOf(
@@ -234,6 +231,7 @@ class ProfileRepository(
 
     suspend fun deleteProfileForUser(targetUserId: String, profileId: String): Result<Unit> = runCatching {
         requireUserId()
+        require(targetUserId.isNotBlank() && profileId.isNotBlank()) { "Invalid user or profile ID." }
         val docRef = db.collection("users").document(targetUserId)
             .collection("profiles").document(profileId)
         try {

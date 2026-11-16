@@ -45,6 +45,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -263,7 +264,7 @@ private fun AuthenticatedVeloraApp(
         return
     }
 
-    var showPreProfileAdmin by remember(currentUserId) { mutableStateOf(false) }
+    var showPreProfileAdmin by rememberSaveable(currentUserId) { mutableStateOf(false) }
 
     if (!hasSelectedProfile) {
         if (showPreProfileAdmin) {
@@ -289,6 +290,7 @@ private fun AuthenticatedVeloraApp(
                         isSavingCatalog = isSavingCatalog,
                         isLoadingSeriesSeasons = isLoadingSeriesStructure,
                         loadedSeriesSeasons = editingSeriesSeasons,
+                        adminErrorMessage = (catalogState as? com.example.data.model.UiState.Error)?.message,
                         mediaUploadStates = mediaUploadStates,
                         onUploadMedia = { fieldKey, uri, category, folderHint, onUploaded ->
                             viewModel.uploadMediaFile(fieldKey, uri, category, folderHint) { url, _, _ ->
@@ -477,8 +479,8 @@ private fun AuthenticatedVeloraApp(
                         onSelectCategory = viewModel::setHomeCategory,
                         onSelectGenre = viewModel::setHomeGenreFilter,
                         onSwitchProfileClick = viewModel::openProfileSwitcher,
-                        onOpenSettings = { navController.navigate(VeloraRoute.Settings) },
-                        onOpenAdminDashboard = { navController.navigate(VeloraRoute.Admin) },
+                        onOpenSettings = { navController.navigate(VeloraRoute.Settings) { launchSingleTop = true } },
+                        onOpenAdminDashboard = { navController.navigate(VeloraRoute.Admin) { launchSingleTop = true } },
                         onSignOut = { signOutFromVelora(credentialManager, scope) },
                         onNotificationsClick = {
                             myListInitialTab = 2
@@ -556,7 +558,7 @@ private fun AuthenticatedVeloraApp(
                         freePlanFeatures = freePlanFeatures,
                         isAdmin = isAdmin,
                         onSwitchProfile = viewModel::openProfileSwitcher,
-                        onOpenAdminDashboard = { navController.navigate(VeloraRoute.Admin) },
+                        onOpenAdminDashboard = { navController.navigate(VeloraRoute.Admin) { launchSingleTop = true } },
                         onSavePreferences = viewModel::updatePreferences,
                         onSignOut = { signOutFromVelora(credentialManager, scope) }
                     )
@@ -573,6 +575,7 @@ private fun AuthenticatedVeloraApp(
                         isSavingCatalog = isSavingCatalog,
                         isLoadingSeriesSeasons = isLoadingSeriesStructure,
                         loadedSeriesSeasons = editingSeriesSeasons,
+                        adminErrorMessage = (catalogState as? com.example.data.model.UiState.Error)?.message,
                         mediaUploadStates = mediaUploadStates,
                         onUploadMedia = { fieldKey, uri, category, folderHint, onUploaded ->
                             viewModel.uploadMediaFile(fieldKey, uri, category, folderHint) { url, _, _ ->
@@ -580,7 +583,11 @@ private fun AuthenticatedVeloraApp(
                             }
                         },
                         onClearUploadState = viewModel::clearMediaUploadState,
-                        onBack = { navController.popBackStack() },
+                        onBack = {
+                            if (navController.previousBackStackEntry != null) {
+                                navController.popBackStack()
+                            }
+                        },
                         onSeedCatalog = viewModel::seedCatalogNow,
                         onSyncSubscriptionSchemas = viewModel::syncSubscriptionSchemasNow,
                         onPrepareSeriesEditor = viewModel::prepareSeriesEditor,
@@ -612,7 +619,11 @@ private fun AuthenticatedVeloraApp(
                             episodesFlowProvider = { seasonId, seasonNum ->
                                 viewModel.observeEpisodes(item.id, seasonId, seasonNum)
                             },
-                            onBack = { navController.popBackStack() },
+                            onBack = {
+                                if (navController.previousBackStackEntry != null) {
+                                    navController.popBackStack()
+                                }
+                            },
                             onPlayMovieOrDefault = {
                                 navController.navigate(VeloraRoute.Player(contentId = item.id))
                             },
@@ -718,7 +729,11 @@ private fun AuthenticatedVeloraApp(
                                     popUpTo(route) { inclusive = true }
                                 }
                             },
-                            onBack = { navController.popBackStack() }
+                            onBack = {
+                                if (navController.previousBackStackEntry != null) {
+                                    navController.popBackStack()
+                                }
+                            }
                         )
                     }
                 }

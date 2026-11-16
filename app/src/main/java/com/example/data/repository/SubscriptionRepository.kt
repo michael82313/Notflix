@@ -6,6 +6,7 @@ import com.example.data.model.PlanFeature
 import com.example.data.model.SubscriptionCatalogDefaults
 import com.example.data.model.SubscriptionPlan
 import com.example.data.model.UserSubscription
+import com.example.data.remote.FirestoreDocumentMapper
 import com.example.data.remote.OperationType
 import com.example.data.remote.handleFirestoreError
 import com.google.firebase.Firebase
@@ -51,10 +52,7 @@ class SubscriptionRepository(
             throw e
         }
         if (snapshot.exists()) {
-            val existing = snapshot.toObject(
-                UserSubscription::class.java,
-                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-            )
+            val existing = FirestoreDocumentMapper.toUserSubscription(snapshot)
             if (existing != null) return@runCatching existing
         }
         val freeSub = SubscriptionCatalogDefaults.defaultFreeSubscription(uid)
@@ -73,10 +71,8 @@ class SubscriptionRepository(
         val docRef = db.collection("userSubscriptions").document(userId)
         return docRef.snapshots()
             .map { snapshot ->
-                snapshot.toObject(
-                    UserSubscription::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                ) ?: SubscriptionCatalogDefaults.defaultFreeSubscription(userId)
+                FirestoreDocumentMapper.toUserSubscription(snapshot)
+                    ?: SubscriptionCatalogDefaults.defaultFreeSubscription(userId)
             }
             .catch { error ->
                 val firestoreError = generateSequence(error) { it.cause }
@@ -99,10 +95,7 @@ class SubscriptionRepository(
         }
         return query.snapshots()
             .map { snapshot ->
-                val remote = snapshot.toObjects(
-                    SubscriptionPlan::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
+                val remote = FirestoreDocumentMapper.toSubscriptionPlans(snapshot)
                 if (remote.isEmpty()) {
                     if (includeInactiveForAdmin) {
                         SubscriptionCatalogDefaults.allBlueprintTiers
@@ -129,10 +122,7 @@ class SubscriptionRepository(
         val colRef = db.collection("subscriptionPlans").document(planId).collection("features")
         return colRef.snapshots()
             .map { snapshot ->
-                val remote = snapshot.toObjects(
-                    PlanFeature::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
+                val remote = FirestoreDocumentMapper.toPlanFeatures(snapshot)
                 if (remote.isEmpty() && planId == "free") {
                     SubscriptionCatalogDefaults.freePlanFeatures
                 } else {
@@ -154,12 +144,7 @@ class SubscriptionRepository(
     fun observeAllUserSubscriptionsForAdmin(): Flow<List<UserSubscription>> {
         val colRef = db.collection("userSubscriptions")
         return colRef.snapshots()
-            .map { snapshot ->
-                snapshot.toObjects(
-                    UserSubscription::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
-            }
+            .map { snapshot -> FirestoreDocumentMapper.toUserSubscriptions(snapshot) }
             .catch { error ->
                 val firestoreError = generateSequence(error) { it.cause }
                     .filterIsInstance<FirebaseFirestoreException>()

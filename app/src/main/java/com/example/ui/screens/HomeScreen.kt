@@ -408,7 +408,7 @@ fun HomeScreen(
                                             )
                                         )
                                     }
-                                    items(genres.take(6), key = { it.id }) { genre ->
+                                    itemsIndexed(genres.take(6), key = { idx, genre -> "${genre.id.ifBlank { "genre" }}_$idx" }) { _, genre ->
                                         val isSelected = selectedGenre.equals(genre.name, ignoreCase = true)
                                         FilterChip(
                                             selected = isSelected,

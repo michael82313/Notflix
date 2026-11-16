@@ -875,6 +875,7 @@ class VeloraViewModel(
     }
 
     fun syncSubscriptionSchemasNow() {
+        if (!requireAdminAction()) return
         viewModelScope.launch {
             subscriptionRepository.seedSubscriptionArchitectureIfEmpty()
                 .onSuccess { seeded ->

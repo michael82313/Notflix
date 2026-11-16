@@ -5,6 +5,7 @@ import android.util.Log
 import com.example.R
 import com.example.data.model.UserAccount
 import com.example.data.model.UserNotification
+import com.example.data.remote.FirestoreDocumentMapper
 import com.example.data.remote.OperationType
 import com.example.data.remote.handleFirestoreError
 import com.google.firebase.Firebase
@@ -65,10 +66,7 @@ class AuthRepository(
         val docRef = db.collection("users").document(user.uid)
         val snapshot = docRef.get().await()
         if (snapshot.exists()) {
-            val existing = snapshot.toObject(
-                UserAccount::class.java,
-                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-            )
+            val existing = FirestoreDocumentMapper.toUserAccount(snapshot)
             if (existing != null) {
                 if (isBootstrappedAdmin(user)) {
                     ensureAdminRecord(user)
@@ -166,12 +164,7 @@ class AuthRepository(
     fun observeUserAccount(userId: String): Flow<UserAccount?> {
         val docRef = db.collection("users").document(userId)
         return docRef.snapshots()
-            .map { snapshot ->
-                snapshot.toObject(
-                    UserAccount::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
-            }
+            .map { snapshot -> FirestoreDocumentMapper.toUserAccount(snapshot) }
             .catch { error ->
                 val firestoreError = generateSequence(error) { it.cause }
                     .filterIsInstance<FirebaseFirestoreException>()

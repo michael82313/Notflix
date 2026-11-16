@@ -57,6 +57,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -99,6 +100,7 @@ fun AdminDashboardScreen(
     isSavingCatalog: Boolean,
     isLoadingSeriesSeasons: Boolean,
     loadedSeriesSeasons: List<SeasonDraft>,
+    adminErrorMessage: String? = null,
     mediaUploadStates: Map<String, MediaUploadState> = emptyMap(),
     onUploadMedia: ((fieldKey: String, uri: Uri, category: MediaAssetCategory, contentFolderHint: String, onUploaded: (String) -> Unit) -> Unit)? = null,
     onClearUploadState: ((String?) -> Unit)? = null,
@@ -141,7 +143,7 @@ fun AdminDashboardScreen(
         return
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) }
+    var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var editingItem by remember { mutableStateOf<CatalogItem?>(null) }
     var createMediaType by remember { mutableStateOf<String?>(null) }
     var managingSeries by remember { mutableStateOf<CatalogItem?>(null) }
@@ -184,7 +186,10 @@ fun AdminDashboardScreen(
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    IconButton(onClick = onBack) {
+                    IconButton(
+                        onClick = onBack,
+                        modifier = Modifier.testTag("admin_back_button")
+                    ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = VeloraOnBackground)
                     }
                     Text("Admin Console", style = MaterialTheme.typography.headlineMedium, color = VeloraOnBackground)
@@ -196,15 +201,37 @@ fun AdminDashboardScreen(
                 }
             }
 
+            if (!adminErrorMessage.isNullOrBlank()) {
+                Surface(
+                    color = VeloraError.copy(alpha = 0.14f),
+                    shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(1.dp, VeloraError.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 4.dp)
+                        .testTag("admin_error_banner")
+                ) {
+                    Text(
+                        text = adminErrorMessage,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = VeloraError,
+                        modifier = Modifier.padding(12.dp)
+                    )
+                }
+            }
+
             TabRow(
-                selectedTabIndex = selectedTab,
+                selectedTabIndex = selectedTab.coerceIn(0, 4),
                 containerColor = VeloraBackground,
                 contentColor = VeloraOnBackground,
                 indicator = { positions ->
-                    TabRowDefaults.SecondaryIndicator(
-                        modifier = Modifier.tabIndicatorOffset(positions[selectedTab]),
-                        color = VeloraCrimson
-                    )
+                    val activePos = positions.getOrNull(selectedTab.coerceIn(0, 4))
+                    if (activePos != null) {
+                        TabRowDefaults.SecondaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(activePos),
+                            color = VeloraCrimson
+                        )
+                    }
                 }
             ) {
                 Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Stats") })
@@ -435,6 +462,14 @@ fun AdminDashboardScreen(
                             users,
                             key = { idx, user -> "${user.id.ifBlank { user.userId }.ifBlank { "user" }}_$idx" }
                         ) { _, user ->
+                            val resolvedUid = user.userId.ifBlank { user.id }
+                            val primaryName = user.displayName.ifBlank {
+                                user.email.ifBlank { user.phoneNumber?.ifBlank { null } ?: resolvedUid.ifBlank { "Notflix User" } }
+                            }
+                            val secondaryIdentifier = user.email.ifBlank {
+                                user.phoneNumber?.ifBlank { null } ?: resolvedUid.ifBlank { "Account ID unavailable" }
+                            }
+                            val normalizedRole = user.role.ifBlank { "member" }
                             Surface(
                                 color = VeloraSurfaceElevated,
                                 shape = RoundedCornerShape(12.dp),
@@ -448,21 +483,22 @@ fun AdminDashboardScreen(
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Column(Modifier.weight(1f)) {
-                                        Text(user.displayName, style = MaterialTheme.typography.titleMedium, color = VeloraOnBackground)
+                                        Text(primaryName, style = MaterialTheme.typography.titleMedium, color = VeloraOnBackground)
                                         Text(
-                                            user.email.ifBlank { user.phoneNumber?.ifBlank { null } ?: user.userId },
+                                            secondaryIdentifier,
                                             style = MaterialTheme.typography.bodySmall,
                                             color = VeloraOnSurfaceMuted
                                         )
                                     }
                                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                         Text(
-                                            text = user.role.uppercase(),
+                                            text = normalizedRole.uppercase(),
                                             style = MaterialTheme.typography.labelMedium,
-                                            color = if (user.role == "admin") VeloraGold else VeloraOnSurfaceMuted
+                                            color = if (normalizedRole == "admin") VeloraGold else VeloraOnSurfaceMuted
                                         )
                                         Switch(
-                                            checked = user.role == "admin",
+                                            checked = normalizedRole == "admin",
+                                            enabled = resolvedUid.isNotBlank(),
                                             onCheckedChange = { onToggleUserAdmin(user, it) }
                                         )
                                     }
@@ -742,15 +778,15 @@ private fun AdminSubscriptionArchitectureTab(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(Modifier.weight(1f)) {
-                        Text(sub.userId, style = MaterialTheme.typography.bodyMedium, color = VeloraOnBackground)
+                        Text(sub.userId.ifBlank { sub.id.ifBlank { "Member" } }, style = MaterialTheme.typography.bodyMedium, color = VeloraOnBackground)
                         Text(
-                            text = "Assigned by ${sub.assignedBy} • ${if (sub.expiresAt == null) "No expiration" else "Scheduled end"}",
+                            text = "Assigned by ${sub.assignedBy.ifBlank { "system" }} • ${if (sub.expiresAt == null) "No expiration" else "Scheduled end"}",
                             style = MaterialTheme.typography.bodySmall,
                             color = VeloraOnSurfaceMuted
                         )
                     }
                     Text(
-                        text = "${sub.planName.uppercase()} • ${sub.status.uppercase()}",
+                        text = "${sub.planName.ifBlank { "Free" }.uppercase()} • ${sub.status.ifBlank { "active" }.uppercase()}",
                         style = MaterialTheme.typography.labelMedium,
                         color = VeloraMatchGreen
                     )

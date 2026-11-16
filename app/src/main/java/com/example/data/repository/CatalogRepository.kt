@@ -11,6 +11,7 @@ import com.example.data.model.Season
 import com.example.data.model.SeasonDraft
 import com.example.data.model.UserAccount
 import com.example.data.model.UserProfile
+import com.example.data.remote.FirestoreDocumentMapper
 import com.example.data.remote.OperationType
 import com.example.data.remote.handleFirestoreError
 import com.example.data.seed.SeedCatalog
@@ -52,10 +53,7 @@ class CatalogRepository(
         }
         return query.snapshots()
             .map { snapshot ->
-                val remoteItems = snapshot.toObjects(
-                    CatalogItem::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
+                val remoteItems = FirestoreDocumentMapper.toCatalogItems(snapshot)
                 if (remoteItems.isEmpty() && !includeHiddenForAdmin) {
                     SeedCatalog.defaultItems
                 } else if (remoteItems.isEmpty()) {
@@ -81,10 +79,7 @@ class CatalogRepository(
         val query = if (includeInactiveForAdmin) colRef else colRef.whereEqualTo("isActive", true)
         return query.snapshots()
             .map { snapshot ->
-                val remote = snapshot.toObjects(
-                    Genre::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
+                val remote = FirestoreDocumentMapper.toGenres(snapshot)
                 if (remote.isEmpty()) {
                     SeedCatalog.defaultGenres
                 } else {
@@ -108,10 +103,7 @@ class CatalogRepository(
         val query = if (includeHiddenForAdmin) colRef else colRef.whereEqualTo("isVisible", true)
         return query.snapshots()
             .map { snapshot ->
-                val remote = snapshot.toObjects(
-                    Season::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
+                val remote = FirestoreDocumentMapper.toSeasons(snapshot)
                 if (remote.isEmpty()) {
                     SeedCatalog.defaultSeasonsForSeries(contentId)
                 } else {
@@ -142,10 +134,7 @@ class CatalogRepository(
         val query = if (includeHiddenForAdmin) colRef else colRef.whereEqualTo("isVisible", true)
         return query.snapshots()
             .map { snapshot ->
-                val remote = snapshot.toObjects(
-                    Episode::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
+                val remote = FirestoreDocumentMapper.toEpisodes(snapshot)
                 if (remote.isEmpty()) {
                     SeedCatalog.defaultEpisodesForSeason(contentId, seasonNumber)
                 } else {
@@ -281,10 +270,8 @@ class CatalogRepository(
         requireUserId()
         val seasonsRef = db.collection("catalog").document(contentId).collection("seasons")
         val remoteSeasons = try {
-            seasonsRef.get().await().toObjects(
-                Season::class.java,
-                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-            ).sortedBy { it.seasonNumber }
+            FirestoreDocumentMapper.toSeasons(seasonsRef.get().await())
+                .sortedBy { it.seasonNumber }
         } catch (e: CancellationException) {
             throw e
         } catch (e: Exception) {
@@ -303,11 +290,17 @@ class CatalogRepository(
         }
 
         remoteSeasons.map { season ->
-            val epRef = seasonsRef.document(season.id).collection("episodes")
-            val remoteEps = epRef.get().await().toObjects(
-                Episode::class.java,
-                DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-            ).sortedBy { it.episodeNumber }
+            val seasonId = season.id.ifBlank { "season-${season.seasonNumber}" }
+            val epRef = seasonsRef.document(seasonId).collection("episodes")
+            val remoteEps = try {
+                FirestoreDocumentMapper.toEpisodes(epRef.get().await())
+                    .sortedBy { it.episodeNumber }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                handleFirestoreError(e, OperationType.LIST, epRef.path)
+                throw e
+            }
             SeasonDraft(
                 season = season,
                 episodes = remoteEps.ifEmpty {
@@ -393,6 +386,7 @@ class CatalogRepository(
 
     suspend fun deleteCatalogItem(contentId: String): Result<Unit> = runCatching {
         requireUserId()
+        require(contentId.isNotBlank()) { "Catalog item ID is required." }
         val docRef = db.collection("catalog").document(contentId)
         try {
             val seasonsSnap = docRef.collection("seasons").get().await()
@@ -513,6 +507,7 @@ class CatalogRepository(
 
     suspend fun deleteGenre(genreId: String): Result<Unit> = runCatching {
         requireUserId()
+        require(genreId.isNotBlank()) { "Genre ID is required." }
         val docRef = db.collection("genres").document(genreId)
         try {
             docRef.delete().await()
@@ -527,12 +522,7 @@ class CatalogRepository(
     fun observeAllUsersForAdmin(): Flow<List<UserAccount>> {
         val colRef = db.collection("users")
         return colRef.snapshots()
-            .map { snapshot ->
-                snapshot.toObjects(
-                    UserAccount::class.java,
-                    DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
-                )
-            }
+            .map { snapshot -> FirestoreDocumentMapper.toUserAccounts(snapshot) }
             .catch { error ->
                 val firestoreError = generateSequence(error) { it.cause }
                     .filterIsInstance<FirebaseFirestoreException>()
@@ -550,10 +540,12 @@ class CatalogRepository(
         if (!makeAdmin && targetUser.email.equals(AuthRepository.BOOTSTRAPPED_ADMIN_EMAIL, ignoreCase = true)) {
             throw IllegalStateException("Primary administrator account cannot be demoted.")
         }
-        val userRef = db.collection("users").document(targetUser.userId)
-        val adminRef = db.collection("admins").document(targetUser.userId)
+        val targetUid = targetUser.userId.ifBlank { targetUser.id }
+        require(targetUid.isNotBlank()) { "User account UID is missing." }
+        val userRef = db.collection("users").document(targetUid)
+        val adminRef = db.collection("admins").document(targetUid)
         val resolvedAdminEmail = targetUser.email.ifBlank {
-            targetUser.phoneNumber?.takeIf { it.isNotBlank() } ?: targetUser.userId
+            targetUser.phoneNumber?.takeIf { it.isNotBlank() } ?: targetUid
         }.take(200)
         try {
             userRef.update(
@@ -565,7 +557,7 @@ class CatalogRepository(
             if (makeAdmin) {
                 adminRef.set(
                     mapOf(
-                        "uid" to targetUser.userId,
+                        "uid" to targetUid,
                         "email" to resolvedAdminEmail,
                         "grantedBy" to adminUid,
                         "createdAt" to FieldValue.serverTimestamp()
@@ -584,12 +576,14 @@ class CatalogRepository(
 
     suspend fun setUserSuspended(targetUser: UserAccount, suspended: Boolean): Result<Unit> = runCatching {
         val adminUid = requireUserId()
-        if (suspended && (targetUser.userId == adminUid ||
+        val targetUid = targetUser.userId.ifBlank { targetUser.id }
+        require(targetUid.isNotBlank()) { "User account UID is missing." }
+        if (suspended && (targetUid == adminUid ||
                 targetUser.email.equals(AuthRepository.BOOTSTRAPPED_ADMIN_EMAIL, ignoreCase = true))
         ) {
             throw IllegalStateException("You cannot suspend your own or primary administrator account.")
         }
-        val userRef = db.collection("users").document(targetUser.userId)
+        val userRef = db.collection("users").document(targetUid)
         try {
             userRef.update(
                 mapOf(
