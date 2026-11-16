@@ -6,6 +6,7 @@ import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import android.view.ViewGroup
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
@@ -56,8 +57,9 @@ fun YouTubeEmbedPlayer(
     LaunchedEffect(videoId, reloadToken) {
         delay(16_000L)
         if (!playerReady) {
+            Log.w("YouTubeEmbedPlayer", "Playback timeout: YouTube IFrame player did not signal readiness for videoId=$videoId")
             latestOnError(
-                "YouTube player timed out while loading. Verify network connectivity and confirm embedding is permitted for this video."
+                "YouTube player timed out while loading video '$videoId'. Verify network connectivity and confirm embedding is permitted for this video."
             )
         }
     }
@@ -85,6 +87,7 @@ fun YouTubeEmbedPlayer(
                 @JavascriptInterface
                 fun onPlayerReady(durationSeconds: Double) {
                     mainHandler.post {
+                        Log.i("YouTubeEmbedPlayer", "YouTube player ready for videoId=$videoId, duration=$durationSeconds s")
                         playerReady = true
                         latestOnReady((durationSeconds * 1000.0).toLong().coerceAtLeast(0L))
                     }
@@ -116,14 +119,16 @@ fun YouTubeEmbedPlayer(
                 fun onPlayerError(code: Int) {
                     mainHandler.post {
                         playerReady = true
-                        val friendly = when (code) {
-                            2 -> "Invalid YouTube video ID or embed parameter."
-                            5 -> "This YouTube video cannot play in the embedded HTML5 player."
-                            100 -> "This YouTube video was removed, made private, or marked unavailable."
-                            101, 150, 152, 153 -> "Embedding is disabled by the owner of this YouTube video (Error $code). Please edit this title in the Admin Dashboard and use an embed-friendly YouTube video URL or direct MP4 link."
-                            else -> "YouTube Playback Unavailable (Error $code). The video owner may have disabled embedding or restrictions apply."
+                        Log.e("YouTubeEmbedPlayer", "YouTube IFrame Player Error Code: $code for videoId=$videoId")
+                        val diagnosis = when (code) {
+                            2 -> "Error 2: The request contains an invalid parameter value (e.g. invalid video ID '$videoId')."
+                            5 -> "Error 5: The requested content cannot be played in an HTML5 player or is restricted."
+                            100 -> "Error 100: The video requested was not found. It might have been deleted or marked private."
+                            101, 150 -> "Error $code: The owner of this YouTube video has requested that it not be played in embedded players (Embedding disabled by video owner)."
+                            152, 153 -> "Error $code: YouTube embedder identity or Referer validation failed for application ID 'com.aistudio.velora.kxmpzq'."
+                            else -> "YouTube Player Error $code. Playback unavailable or restricted for video ID '$videoId'."
                         }
-                        latestOnError(friendly)
+                        latestOnError(diagnosis)
                     }
                 }
             }
@@ -158,10 +163,9 @@ fun YouTubeEmbedPlayer(
                 ) {
                     if (request?.isForMainFrame == true) {
                         playerReady = true
-                        latestOnError(
-                            error?.description?.toString()?.takeIf { it.isNotBlank() }
-                                ?: "Unable to connect to YouTube embedded player."
-                        )
+                        val errDesc = error?.description?.toString() ?: "Unknown WebView error"
+                        Log.e("YouTubeEmbedPlayer", "WebView main frame error: $errDesc")
+                        latestOnError("WebView connection error: $errDesc")
                     }
                 }
             }
@@ -169,7 +173,7 @@ fun YouTubeEmbedPlayer(
             val startSeconds = (initialPositionMs / 1000L).coerceAtLeast(0L)
             val html = buildYouTubeIframeHtml(videoId = videoId, startSeconds = startSeconds)
             loadDataWithBaseURL(
-                "https://www.youtube.com",
+                "https://com.aistudio.velora.kxmpzq",
                 html,
                 "text/html",
                 "utf-8",
@@ -252,8 +256,8 @@ private fun buildYouTubeIframeHtml(videoId: String, startSeconds: Long): String 
                     modestbranding: 1,
                     iv_load_policy: 3,
                     enablejsapi: 1,
-                    origin: 'https://www.youtube.com',
-                    widget_referrer: 'https://www.youtube.com',
+                    origin: 'https://com.aistudio.velora.kxmpzq',
+                    widget_referrer: 'https://com.aistudio.velora.kxmpzq',
                     start: $startSeconds
                   },
                   events: {
@@ -262,7 +266,9 @@ private fun buildYouTubeIframeHtml(videoId: String, startSeconds: Long): String 
                         var dur = event.target.getDuration() || 0;
                         NotflixYouTubeBridge.onPlayerReady(dur);
                         event.target.playVideo();
-                      } catch (e) {}
+                      } catch (e) {
+                        console.error('onReady error:', e);
+                      }
                     },
                     onStateChange: function(event) {
                       try {
@@ -290,12 +296,16 @@ private fun buildYouTubeIframeHtml(videoId: String, startSeconds: Long): String 
                     },
                     onError: function(event) {
                       try {
+                        console.error('YT.Player error event:', event.data);
                         NotflixYouTubeBridge.onPlayerError(event.data || -1);
-                      } catch (e) {}
+                      } catch (e) {
+                        NotflixYouTubeBridge.onPlayerError(-98);
+                      }
                     }
                   }
                 });
               } catch (err) {
+                console.error('YT.Player init exception:', err);
                 NotflixYouTubeBridge.onPlayerError(-99);
               }
             }
