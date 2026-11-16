@@ -1,5 +1,9 @@
 package com.example.ui.screens
 
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -29,12 +33,13 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudUpload
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.ErrorOutline
+import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
@@ -44,6 +49,7 @@ import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -77,6 +83,8 @@ import com.example.data.model.Episode
 import com.example.data.model.Genre
 import com.example.data.model.Season
 import com.example.data.model.SeasonDraft
+import com.example.data.repository.MediaAssetCategory
+import com.example.data.repository.MediaUploadState
 import com.example.ui.theme.VeloraBackground
 import com.example.ui.theme.VeloraCoral
 import com.example.ui.theme.VeloraCrimson
@@ -89,6 +97,7 @@ import com.example.ui.theme.VeloraOutline
 import com.example.ui.theme.VeloraSurface
 import com.example.ui.theme.VeloraSurfaceBright
 import com.example.ui.theme.VeloraSurfaceElevated
+import com.example.util.DetectedSourceKind
 import com.example.util.VideoSourceType
 import com.example.util.VideoSourceUtils
 
@@ -103,6 +112,9 @@ fun AdminCatalogEditorDialog(
     loadedSeriesSeasons: List<SeasonDraft>,
     isLoadingSeriesSeasons: Boolean,
     isSaving: Boolean,
+    mediaUploadStates: Map<String, MediaUploadState> = emptyMap(),
+    onUploadMedia: ((fieldKey: String, uri: Uri, category: MediaAssetCategory, contentFolderHint: String, onUploaded: (String) -> Unit) -> Unit)? = null,
+    onClearUploadState: ((String?) -> Unit)? = null,
     onDismiss: () -> Unit,
     onSaveMovie: (CatalogItem) -> Unit,
     onSaveSeries: (
@@ -149,14 +161,11 @@ fun AdminCatalogEditorDialog(
 
     val initialSourceType = remember(initial?.id) {
         if (initial == null) {
-            VideoSourceType.MP4
+            VideoSourceType.AUTO
+        } else if (initial.videoSourceType.isNotBlank()) {
+            VideoSourceType.fromKey(initial.videoSourceType)
         } else {
-            val rawUrl = initial.preferredStreamUrl
-            if (initial.videoSourceType.isNotBlank() && initial.videoSourceType != "mp4") {
-                VideoSourceType.fromKey(initial.videoSourceType)
-            } else {
-                VideoSourceUtils.detectSourceTypeFromUrl(rawUrl, VideoSourceType.MP4)
-            }
+            VideoSourceUtils.detectSourceTypeFromUrl(initial.preferredStreamUrl, VideoSourceType.AUTO)
         }
     }
     var videoSourceType by remember(initial?.id) { mutableStateOf(initialSourceType) }
@@ -164,6 +173,9 @@ fun AdminCatalogEditorDialog(
         mutableStateOf(
             initial?.preferredStreamUrl ?: ""
         )
+    }
+    var providerName by remember(initial?.id) {
+        mutableStateOf(initial?.providerName ?: "")
     }
 
     var isFeatured by remember(initial?.id) { mutableStateOf(initial?.isFeatured ?: false) }
@@ -288,7 +300,11 @@ fun AdminCatalogEditorDialog(
 
         formError = null
         val cleanedUrl = videoUrl.trim()
-        val hlsValue = if (videoSourceType == VideoSourceType.HLS && cleanedUrl.isNotBlank()) cleanedUrl else null
+        val effectiveKind = VideoSourceUtils.detectClassification(cleanedUrl, providerName).detectedKind
+        val hlsValue = if ((videoSourceType == VideoSourceType.HLS || effectiveKind == DetectedSourceKind.HLS_STREAM) && cleanedUrl.isNotBlank()) {
+            cleanedUrl
+        } else null
+        val cleanedProvider = providerName.trim().takeIf { it.isNotBlank() }
         val itemToSave = (initial ?: CatalogItem()).copy(
             title = trimmedTitle,
             synopsis = trimmedSynopsis,
@@ -304,6 +320,7 @@ fun AdminCatalogEditorDialog(
             trailerUrl = trailerUrl.trim().takeIf { it.isNotBlank() },
             videoUrl = cleanedUrl,
             videoSourceType = videoSourceType.key,
+            providerName = cleanedProvider,
             hlsUrl = hlsValue,
             isFeatured = isFeatured,
             isVisible = isVisible,
@@ -587,8 +604,31 @@ fun AdminCatalogEditorDialog(
                     }
                 }
 
-                // Artwork & Trailer URLs
+                // Artwork & Trailer URLs + Optional Photo Picker Upload
                 item {
+                    val folderHint = title.ifBlank { initial?.id ?: "catalog-item" }
+                    val posterPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+                        if (uri != null && onUploadMedia != null) {
+                            onUploadMedia("poster", uri, MediaAssetCategory.POSTER, folderHint) { url ->
+                                posterUrl = url
+                            }
+                        }
+                    }
+                    val backdropPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+                        if (uri != null && onUploadMedia != null) {
+                            onUploadMedia("backdrop", uri, MediaAssetCategory.BACKDROP, folderHint) { url ->
+                                backdropUrl = url
+                            }
+                        }
+                    }
+                    val trailerPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+                        if (uri != null && onUploadMedia != null) {
+                            onUploadMedia("trailer", uri, MediaAssetCategory.TRAILER, folderHint) { url ->
+                                trailerUrl = url
+                            }
+                        }
+                    }
+
                     EditorSectionCard(title = "Artwork & Trailer") {
                         OutlinedTextField(
                             value = posterUrl,
@@ -606,6 +646,16 @@ fun AdminCatalogEditorDialog(
                                 .fillMaxWidth()
                                 .testTag("editor_poster_url_input")
                         )
+                        if (onUploadMedia != null) {
+                            MediaUploadControlRow(
+                                label = "Upload Poster Image",
+                                state = mediaUploadStates["poster"],
+                                onPickClick = {
+                                    onClearUploadState?.invoke("poster")
+                                    posterPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                }
+                            )
+                        }
                         if (posterUrl.isNotBlank() && posterValidation.isValid) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -641,6 +691,16 @@ fun AdminCatalogEditorDialog(
                                 .fillMaxWidth()
                                 .testTag("editor_backdrop_url_input")
                         )
+                        if (onUploadMedia != null) {
+                            MediaUploadControlRow(
+                                label = "Upload Backdrop Image",
+                                state = mediaUploadStates["backdrop"],
+                                onPickClick = {
+                                    onClearUploadState?.invoke("backdrop")
+                                    backdropPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                                }
+                            )
+                        }
                         if (backdropUrl.isNotBlank() && backdropValidation.isValid) {
                             AsyncImage(
                                 model = backdropUrl.trim(),
@@ -657,15 +717,15 @@ fun AdminCatalogEditorDialog(
                         OutlinedTextField(
                             value = trailerUrl,
                             onValueChange = { trailerUrl = it },
-                            label = { Text("Trailer URL (YouTube, MP4, or HLS)") },
+                            label = { Text("Trailer URL (Auto-detect, YouTube, Vimeo, MP4, or HLS)") },
                             placeholder = { Text("https://www.youtube.com/watch?v=... or https://.../trailer.mp4") },
                             isError = !trailerValidation.isValid,
                             supportingText = {
                                 if (!trailerValidation.isValid) {
                                     Text(trailerValidation.errorOrNull!!, color = VeloraError)
                                 } else if (trailerUrl.isNotBlank()) {
-                                    val detected = VideoSourceUtils.detectSourceTypeFromUrl(trailerUrl)
-                                    Text("Detected trailer player: ${detected.label}", color = VeloraMatchGreen)
+                                    val detected = VideoSourceUtils.detectClassification(trailerUrl)
+                                    Text("Detected trailer: ${detected.detectedKind.label} (${detected.providerName ?: "Auto"})", color = VeloraMatchGreen)
                                 }
                             },
                             singleLine = true,
@@ -673,17 +733,44 @@ fun AdminCatalogEditorDialog(
                                 .fillMaxWidth()
                                 .testTag("editor_trailer_url_input")
                         )
+                        if (onUploadMedia != null) {
+                            MediaUploadControlRow(
+                                label = "Upload Trailer Video",
+                                state = mediaUploadStates["trailer"],
+                                onPickClick = {
+                                    onClearUploadState?.invoke("trailer")
+                                    trailerPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                                }
+                            )
+                        }
                     }
                 }
 
-                // Video Source Section
+                // Multi-Host Video Source Section
                 item {
+                    val folderHint = title.ifBlank { initial?.id ?: "catalog-item" }
+                    val videoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+                        if (uri != null && onUploadMedia != null) {
+                            onUploadMedia("video", uri, MediaAssetCategory.VIDEO, folderHint) { url ->
+                                videoUrl = url
+                                videoSourceType = VideoSourceType.MP4
+                                if (providerName.isBlank()) providerName = "Firebase Storage"
+                            }
+                        }
+                    }
+
                     EditorSectionCard(
-                        title = if (mediaType == "series") "Series Preview / Fallback Video Source (Optional)" else "Video Source*"
+                        title = if (mediaType == "series") "Series Preview / Fallback Video Source (Optional)" else "Video / Webpage Source*"
                     ) {
                         if (mediaType == "series") {
                             Text(
-                                text = "Each TV episode below has its own video source. Optionally provide a series-level fallback video here.",
+                                text = "Each TV episode below has its own video source. Optionally provide a series-level fallback URL here.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = VeloraOnSurfaceMuted
+                            )
+                        } else {
+                            Text(
+                                text = "Paste a direct MP4, HLS (.m3u8), official embed/hosting URL (YouTube, Vimeo, Dailymotion, Twitch, Loom, Drive, Archive.org), or webpage link. Edit anytime without recreating the entry.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = VeloraOnSurfaceMuted
                             )
@@ -698,7 +785,7 @@ fun AdminCatalogEditorDialog(
                         OutlinedTextField(
                             value = videoUrl,
                             onValueChange = { videoUrl = it },
-                            label = { Text("${videoSourceType.label} URL${if (mediaType == "movie") "*" else ""}") },
+                            label = { Text("Video / Webpage URL${if (mediaType == "movie") "*" else ""}") },
                             placeholder = { Text(placeholderForSourceType(videoSourceType)) },
                             isError = videoUrl.isNotBlank() && !videoSourceValidation.isValid,
                             singleLine = true,
@@ -707,9 +794,35 @@ fun AdminCatalogEditorDialog(
                                 .testTag("editor_video_url_input")
                         )
 
+                        val detectedPreview = remember(videoUrl) {
+                            if (videoUrl.isNotBlank()) VideoSourceUtils.detectClassification(videoUrl) else null
+                        }
+                        OutlinedTextField(
+                            value = providerName,
+                            onValueChange = { providerName = it.take(80) },
+                            label = { Text("Provider Name (Optional)") },
+                            placeholder = { Text(detectedPreview?.providerName ?: "e.g. YouTube, Vimeo, Dailymotion, CDN") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("editor_provider_name_input")
+                        )
+
+                        if (onUploadMedia != null) {
+                            MediaUploadControlRow(
+                                label = "Upload MP4 Video to Firebase Storage (Optional)",
+                                state = mediaUploadStates["video"],
+                                onPickClick = {
+                                    onClearUploadState?.invoke("video")
+                                    videoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                                }
+                            )
+                        }
+
                         SourceValidationBadge(
                             url = videoUrl,
                             sourceType = videoSourceType,
+                            customProviderName = providerName,
                             required = mediaType == "movie"
                         )
                     }
@@ -1087,6 +1200,18 @@ fun AdminCatalogEditorDialog(
                 initial = existingEp,
                 defaultEpisodeNumber = defaultNextNum,
                 fallbackThumbKey = initial?.backdropKey ?: "img_hero_nebula",
+                mediaUploadState = mediaUploadStates["episode_${draft.season.seasonNumber}"],
+                onUploadEpisodeVideo = onUploadMedia?.let { uploader ->
+                    { uri, onUploaded ->
+                        uploader(
+                            "episode_${draft.season.seasonNumber}",
+                            uri,
+                            MediaAssetCategory.EPISODE,
+                            title.ifBlank { initial?.id ?: "series" },
+                            onUploaded
+                        )
+                    }
+                },
                 onDismiss = { editingEpisodeTarget = null },
                 onConfirm = { savedEp ->
                     val currentEps = draft.episodes.toMutableList()
@@ -1105,16 +1230,58 @@ fun AdminCatalogEditorDialog(
 }
 
 @Composable
+private fun MediaUploadControlRow(
+    label: String,
+    state: MediaUploadState?,
+    onPickClick: () -> Unit
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        OutlinedButton(
+            onClick = onPickClick,
+            enabled = state !is MediaUploadState.Uploading,
+            border = BorderStroke(1.dp, VeloraOutline),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Icon(Icons.Filled.CloudUpload, contentDescription = null, tint = VeloraGold, modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(8.dp))
+            Text(
+                text = if (state is MediaUploadState.Uploading) state.label else label,
+                color = VeloraOnBackground
+            )
+        }
+        when (state) {
+            is MediaUploadState.Uploading -> {
+                LinearProgressIndicator(
+                    progress = { state.progressFraction },
+                    color = VeloraCrimson,
+                    trackColor = VeloraOutline,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            is MediaUploadState.Error -> {
+                Text(state.message, color = VeloraError, style = MaterialTheme.typography.bodySmall)
+            }
+            is MediaUploadState.Success -> {
+                Text("Uploaded: ${state.fileName}", color = VeloraMatchGreen, style = MaterialTheme.typography.bodySmall)
+            }
+            else -> Unit
+        }
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
 fun VideoSourceSelectorRow(
     selectedType: VideoSourceType,
     onSelectType: (VideoSourceType) -> Unit,
     tagPrefix: String
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Video Source Type*", style = MaterialTheme.typography.labelLarge, color = VeloraOnBackground)
-        Row(
+        Text("Source Type*", style = MaterialTheme.typography.labelLarge, color = VeloraOnBackground)
+        FlowRow(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
         ) {
             VideoSourceType.entries.forEach { type ->
                 FilterChip(
@@ -1125,9 +1292,7 @@ fun VideoSourceSelectorRow(
                         selectedContainerColor = VeloraCrimson,
                         selectedLabelColor = Color.White
                     ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .testTag("${tagPrefix}_${type.key}")
+                    modifier = Modifier.testTag("${tagPrefix}_${type.key}")
                 )
             }
         }
@@ -1138,13 +1303,14 @@ fun VideoSourceSelectorRow(
 fun SourceValidationBadge(
     url: String,
     sourceType: VideoSourceType,
+    customProviderName: String? = null,
     required: Boolean
 ) {
     val trimmed = url.trim()
     if (trimmed.isBlank()) {
         if (required) {
             Text(
-                text = "Enter a valid ${sourceType.label} HTTPS URL.",
+                text = "Enter an HTTPS video or webpage URL (${sourceType.label}).",
                 style = MaterialTheme.typography.bodySmall,
                 color = VeloraOnSurfaceMuted
             )
@@ -1152,21 +1318,7 @@ fun SourceValidationBadge(
         return
     }
     val validation = VideoSourceUtils.validateVideoSource(trimmed, sourceType, required = required)
-    if (validation.isValid) {
-        val detail = if (sourceType == VideoSourceType.YOUTUBE) {
-            val ytId = VideoSourceUtils.extractYouTubeVideoId(trimmed)
-            "Valid YouTube Embed (ID: $ytId)"
-        } else {
-            "Valid ${sourceType.label} source URL"
-        }
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(6.dp)
-        ) {
-            Icon(Icons.Filled.CheckCircle, contentDescription = null, tint = VeloraMatchGreen, modifier = Modifier.size(16.dp))
-            Text(detail, style = MaterialTheme.typography.bodySmall, color = VeloraMatchGreen)
-        }
-    } else {
+    if (!validation.isValid) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(6.dp)
@@ -1174,6 +1326,36 @@ fun SourceValidationBadge(
             Icon(Icons.Filled.ErrorOutline, contentDescription = null, tint = VeloraError, modifier = Modifier.size(16.dp))
             Text(validation.errorOrNull!!, style = MaterialTheme.typography.bodySmall, color = VeloraError)
         }
+        return
+    }
+
+    val resolved = VideoSourceUtils.resolveForPlayback(trimmed, sourceType.key, customProviderName)
+    val badgeColor = when (resolved.detectedKind) {
+        DetectedSourceKind.ORDINARY_WEBPAGE -> VeloraGold
+        DetectedSourceKind.UNSUPPORTED -> VeloraError
+        else -> VeloraMatchGreen
+    }
+    val badgeIcon = when (resolved.detectedKind) {
+        DetectedSourceKind.ORDINARY_WEBPAGE -> Icons.Filled.Info
+        DetectedSourceKind.UNSUPPORTED -> Icons.Filled.ErrorOutline
+        else -> Icons.Filled.CheckCircle
+    }
+    val detailText = buildString {
+        append(resolved.detectedKind.label)
+        if (!resolved.providerName.isNullOrBlank()) {
+            append(" (${resolved.providerName})")
+        }
+        if (!resolved.infoMessage.isNullOrBlank()) {
+            append(" — ")
+            append(resolved.infoMessage)
+        }
+    }
+    Row(
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+        Icon(badgeIcon, contentDescription = null, tint = badgeColor, modifier = Modifier.padding(top = 2.dp).size(16.dp))
+        Text(detailText, style = MaterialTheme.typography.bodySmall, color = badgeColor)
     }
 }
 
@@ -1183,6 +1365,8 @@ fun EpisodeEditorDialog(
     initial: Episode?,
     defaultEpisodeNumber: Int,
     fallbackThumbKey: String,
+    mediaUploadState: MediaUploadState? = null,
+    onUploadEpisodeVideo: ((Uri, (String) -> Unit) -> Unit)? = null,
     onDismiss: () -> Unit,
     onConfirm: (Episode) -> Unit
 ) {
@@ -1193,17 +1377,28 @@ fun EpisodeEditorDialog(
     var epThumbUrl by remember { mutableStateOf(initial?.thumbnailUrl ?: "") }
     var epSourceType by remember {
         mutableStateOf(
-            if (initial == null) VideoSourceType.MP4
-            else if (initial.videoSourceType.isNotBlank() && initial.videoSourceType != "mp4") {
+            if (initial == null) VideoSourceType.AUTO
+            else if (initial.videoSourceType.isNotBlank()) {
                 VideoSourceType.fromKey(initial.videoSourceType)
             } else {
-                VideoSourceUtils.detectSourceTypeFromUrl(initial.preferredStreamUrl)
+                VideoSourceUtils.detectSourceTypeFromUrl(initial.preferredStreamUrl, VideoSourceType.AUTO)
             }
         )
     }
     var epVideoUrl by remember { mutableStateOf(initial?.preferredStreamUrl ?: "") }
+    var epProviderName by remember { mutableStateOf(initial?.providerName ?: "") }
     var epVisible by remember { mutableStateOf(initial?.isVisible ?: true) }
     var errorMsg by remember { mutableStateOf<String?>(null) }
+
+    val episodePicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+        if (uri != null && onUploadEpisodeVideo != null) {
+            onUploadEpisodeVideo(uri) { uploadedUrl ->
+                epVideoUrl = uploadedUrl
+                epSourceType = VideoSourceType.MP4
+                if (epProviderName.isBlank()) epProviderName = "Firebase Storage"
+            }
+        }
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -1273,7 +1468,7 @@ fun EpisodeEditorDialog(
                 OutlinedTextField(
                     value = epVideoUrl,
                     onValueChange = { epVideoUrl = it },
-                    label = { Text("Episode ${epSourceType.label} URL*") },
+                    label = { Text("Episode Video / Webpage URL*") },
                     placeholder = { Text(placeholderForSourceType(epSourceType)) },
                     singleLine = true,
                     modifier = Modifier
@@ -1281,9 +1476,29 @@ fun EpisodeEditorDialog(
                         .testTag("ep_editor_video_url_input")
                 )
 
+                OutlinedTextField(
+                    value = epProviderName,
+                    onValueChange = { epProviderName = it.take(80) },
+                    label = { Text("Provider Name (Optional)") },
+                    placeholder = { Text("e.g. YouTube, Vimeo, CDN") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (onUploadEpisodeVideo != null) {
+                    MediaUploadControlRow(
+                        label = "Upload Episode Video (MP4)",
+                        state = mediaUploadState,
+                        onPickClick = {
+                            episodePicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.VideoOnly))
+                        }
+                    )
+                }
+
                 SourceValidationBadge(
                     url = epVideoUrl,
                     sourceType = epSourceType,
+                    customProviderName = epProviderName,
                     required = true
                 )
 
@@ -1315,6 +1530,7 @@ fun EpisodeEditorDialog(
                         !videoCheck.isValid -> errorMsg = videoCheck.errorOrNull
                         else -> {
                             val trimmedUrl = epVideoUrl.trim()
+                            val kind = VideoSourceUtils.detectClassification(trimmedUrl, epProviderName).detectedKind
                             onConfirm(
                                 (initial ?: Episode()).copy(
                                     id = initial?.id?.ifBlank { "s${seasonNumber}e$parsedNum" } ?: "s${seasonNumber}e$parsedNum",
@@ -1327,7 +1543,8 @@ fun EpisodeEditorDialog(
                                     thumbnailUrl = epThumbUrl.trim().takeIf { it.isNotBlank() },
                                     videoUrl = trimmedUrl,
                                     videoSourceType = epSourceType.key,
-                                    hlsUrl = if (epSourceType == VideoSourceType.HLS) trimmedUrl else null,
+                                    providerName = epProviderName.trim().takeIf { it.isNotBlank() },
+                                    hlsUrl = if (epSourceType == VideoSourceType.HLS || kind == DetectedSourceKind.HLS_STREAM) trimmedUrl else null,
                                     isVisible = epVisible
                                 )
                             )
@@ -1372,7 +1589,8 @@ private fun EditorSectionCard(
 
 fun placeholderForSourceType(type: VideoSourceType): String {
     return when (type) {
-        VideoSourceType.YOUTUBE -> "https://www.youtube.com/watch?v=... or https://youtu.be/..."
+        VideoSourceType.AUTO -> "https://youtu.be/..., https://vimeo.com/..., https://.../video.mp4, or .m3u8"
+        VideoSourceType.EMBED -> "https://vimeo.com/..., https://www.youtube.com/watch?v=..., or embed URL"
         VideoSourceType.MP4 -> "https://example.com/videos/feature.mp4"
         VideoSourceType.HLS -> "https://example.com/streams/master.m3u8"
     }

@@ -188,7 +188,8 @@ data class CatalogItem(
     val backdropUrl: String? = null,
     val trailerUrl: String? = null,
     val videoUrl: String = "",
-    val videoSourceType: String = "mp4", // "youtube" | "mp4" | "hls"
+    val videoSourceType: String = "auto", // "auto" | "mp4" | "hls" | "embed" | "youtube"
+    val providerName: String? = null,
     val hlsUrl: String? = null,
     val isFeatured: Boolean = false,
     val isVisible: Boolean = true,
@@ -202,13 +203,13 @@ data class CatalogItem(
 
     val preferredStreamUrl: String
         get() = when (videoSourceType.lowercase()) {
-            "youtube" -> videoUrl
+            "youtube", "embed", "auto" -> videoUrl.ifBlank { hlsUrl.orEmpty() }
             "hls" -> hlsUrl?.takeIf { it.isNotBlank() } ?: videoUrl
             else -> videoUrl.ifBlank { hlsUrl.orEmpty() }
         }
 
     fun toWriteMap(isCreate: Boolean): Map<String, Any> = buildMap {
-        val normalizedType = com.example.util.VideoSourceType.fromKey(videoSourceType).key
+        val normalizedType = com.example.util.VideoSourceUtils.normalizeFirestoreSourceType(videoSourceType)
         put("title", title.trim().take(200))
         put("synopsis", synopsis.trim().take(2000))
         put("mediaType", if (mediaType == "series") "series" else "movie")
@@ -237,6 +238,11 @@ data class CatalogItem(
         }
         put("videoUrl", videoUrl.trim())
         put("videoSourceType", normalizedType)
+        if (!providerName.isNullOrBlank()) {
+            put("providerName", providerName.trim().take(80))
+        } else if (!isCreate) {
+            put("providerName", FieldValue.delete())
+        }
         if (!hlsUrl.isNullOrBlank()) {
             put("hlsUrl", hlsUrl.trim())
         } else if (!isCreate) {
@@ -285,7 +291,8 @@ data class Episode(
     val thumbnailKey: String = "img_hero_nebula",
     val thumbnailUrl: String? = null,
     val videoUrl: String = "",
-    val videoSourceType: String = "mp4", // "youtube" | "mp4" | "hls"
+    val videoSourceType: String = "auto", // "auto" | "mp4" | "hls" | "embed" | "youtube"
+    val providerName: String? = null,
     val hlsUrl: String? = null,
     val isVisible: Boolean = true,
     @ServerTimestamp val createdAt: Timestamp? = null,
@@ -293,13 +300,13 @@ data class Episode(
 ) {
     val preferredStreamUrl: String
         get() = when (videoSourceType.lowercase()) {
-            "youtube" -> videoUrl
+            "youtube", "embed", "auto" -> videoUrl.ifBlank { hlsUrl.orEmpty() }
             "hls" -> hlsUrl?.takeIf { it.isNotBlank() } ?: videoUrl
             else -> videoUrl.ifBlank { hlsUrl.orEmpty() }
         }
 
     fun toWriteMap(isCreate: Boolean): Map<String, Any> = buildMap {
-        val normalizedType = com.example.util.VideoSourceType.fromKey(videoSourceType).key
+        val normalizedType = com.example.util.VideoSourceUtils.normalizeFirestoreSourceType(videoSourceType)
         put("seasonNumber", seasonNumber.coerceIn(1, 100))
         put("episodeNumber", episodeNumber.coerceIn(1, 1000))
         put("title", title.trim().take(200))
@@ -313,6 +320,11 @@ data class Episode(
         }
         put("videoUrl", videoUrl.trim())
         put("videoSourceType", normalizedType)
+        if (!providerName.isNullOrBlank()) {
+            put("providerName", providerName.trim().take(80))
+        } else if (!isCreate) {
+            put("providerName", FieldValue.delete())
+        }
         if (!hlsUrl.isNullOrBlank()) {
             put("hlsUrl", hlsUrl.trim())
         } else if (!isCreate) {

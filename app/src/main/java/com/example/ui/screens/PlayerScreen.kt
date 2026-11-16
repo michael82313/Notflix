@@ -1,7 +1,10 @@
 package com.example.ui.screens
 
 import android.app.Activity
+import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
+import android.net.Uri
 import android.view.ViewGroup
 import androidx.annotation.OptIn
 import androidx.compose.animation.AnimatedVisibility
@@ -29,6 +32,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.OpenInNew
 import androidx.compose.material.icons.automirrored.filled.VolumeOff
 import androidx.compose.material.icons.automirrored.filled.VolumeUp
 import androidx.compose.material.icons.filled.ClosedCaption
@@ -38,6 +42,7 @@ import androidx.compose.material.icons.filled.Forward10
 import androidx.compose.material.icons.filled.Fullscreen
 import androidx.compose.material.icons.filled.FullscreenExit
 import androidx.compose.material.icons.filled.HighQuality
+import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
@@ -82,6 +87,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.core.view.WindowCompat
@@ -97,13 +103,16 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.example.data.model.Episode
+import com.example.ui.components.HostedEmbedWebPlayer
 import com.example.ui.components.YouTubeEmbedPlayer
 import com.example.ui.theme.VeloraCrimson
 import com.example.ui.theme.VeloraError
+import com.example.ui.theme.VeloraGold
 import com.example.ui.theme.VeloraOnBackground
 import com.example.ui.theme.VeloraOnSurfaceMuted
 import com.example.ui.theme.VeloraOutline
 import com.example.ui.theme.VeloraSurfaceElevated
+import com.example.util.DetectedSourceKind
 import com.example.util.VideoSourceType
 import com.example.util.VideoSourceUtils
 import kotlinx.coroutines.delay
@@ -117,6 +126,7 @@ fun PlayerScreen(
     subtitleLabel: String?,
     streamUrl: String,
     streamSourceType: String? = null,
+    streamProviderName: String? = null,
     episodeId: String?,
     seasonNumber: Int?,
     episodeNumber: Int?,
@@ -132,8 +142,8 @@ fun PlayerScreen(
     val context = LocalContext.current
     val activity = context as? Activity
 
-    val resolvedSource = remember(streamUrl, streamSourceType) {
-        VideoSourceUtils.resolveForPlayback(streamUrl, streamSourceType)
+    val resolvedSource = remember(streamUrl, streamSourceType, streamProviderName) {
+        VideoSourceUtils.resolveForPlayback(streamUrl, streamSourceType, streamProviderName)
     }
 
     var isFullscreen by remember { mutableStateOf(false) }
@@ -173,8 +183,10 @@ fun PlayerScreen(
         }
     }
 
-    // Source validation failure UI
-    if (resolvedSource.validationError != null) {
+    // Source validation failure or unsupported URL UI
+    if (resolvedSource.validationError != null || resolvedSource.detectedKind == DetectedSourceKind.UNSUPPORTED) {
+        val canOpenOriginal = resolvedSource.originalUrl.startsWith("https://") ||
+            resolvedSource.originalUrl.startsWith("http://")
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -186,21 +198,43 @@ fun PlayerScreen(
         ) {
             PlaybackErrorCard(
                 title = "Playback Unavailable",
-                message = resolvedSource.validationError,
-                sourceBadge = resolvedSource.sourceType.label,
+                message = resolvedSource.validationError ?: "Unsupported video source.",
+                sourceBadge = resolvedSource.providerName ?: resolvedSource.sourceType.label,
                 canRetry = false,
                 onRetry = {},
+                onOpenWebsite = if (canOpenOriginal) {
+                    { openExternalWebsite(context, resolvedSource.originalUrl) }
+                } else null,
                 onBack = onBack
             )
         }
         return
     }
 
-    if (resolvedSource.sourceType == VideoSourceType.YOUTUBE && resolvedSource.youtubeVideoId != null) {
+    // Ordinary webpage: do NOT treat as a direct video file; explain why & offer Open Website
+    if (resolvedSource.detectedKind == DetectedSourceKind.ORDINARY_WEBPAGE) {
+        OrdinaryWebpageViewingCard(
+            title = title,
+            subtitleLabel = subtitleLabel,
+            providerName = resolvedSource.providerName ?: "External Website",
+            explanation = resolvedSource.infoMessage
+                ?: "This source points to an ordinary webpage rather than a direct video stream or supported embedded player.",
+            targetUrl = resolvedSource.originalUrl,
+            nextEpisode = nextEpisode,
+            onOpenWebsite = { openExternalWebsite(context, resolvedSource.originalUrl) },
+            onPlayNextEpisode = onPlayNextEpisode,
+            onBack = onBack
+        )
+        return
+    }
+
+    // YouTube official IFrame Player API
+    if (resolvedSource.youtubeVideoId != null) {
         YouTubePlayerHost(
             title = title,
             subtitleLabel = subtitleLabel,
             videoId = resolvedSource.youtubeVideoId,
+            originalUrl = resolvedSource.originalUrl,
             initialPositionMs = initialPositionMs,
             autoplayNext = autoplayNext,
             isFullscreen = isFullscreen,
@@ -210,6 +244,25 @@ fun PlayerScreen(
             onSaveProgress = onSaveProgress,
             onTriggerNextCountdown = { nextEpisodeCountdown = 5 },
             onCancelNextCountdown = { nextEpisodeCountdown = -1 },
+            onOpenWebsite = { openExternalWebsite(context, resolvedSource.originalUrl) },
+            onPlayNextEpisode = onPlayNextEpisode,
+            onBack = onBack
+        )
+        return
+    }
+
+    // Compatible external host official embedded player (Vimeo, Dailymotion, Twitch, Google Drive /preview, etc.)
+    if (resolvedSource.detectedKind == DetectedSourceKind.SUPPORTED_EMBED && !resolvedSource.embedUrl.isNullOrBlank()) {
+        HostedEmbedPlayerHost(
+            title = title,
+            subtitleLabel = subtitleLabel,
+            providerName = resolvedSource.providerName ?: "Embedded Player",
+            embedUrl = resolvedSource.embedUrl,
+            originalUrl = resolvedSource.originalUrl,
+            isFullscreen = isFullscreen,
+            nextEpisode = nextEpisode,
+            onToggleFullscreen = { isFullscreen = !isFullscreen },
+            onOpenWebsite = { openExternalWebsite(context, resolvedSource.originalUrl) },
             onPlayNextEpisode = onPlayNextEpisode,
             onBack = onBack
         )
@@ -232,6 +285,7 @@ fun PlayerScreen(
         onSaveProgress = onSaveProgress,
         onTriggerNextCountdown = { nextEpisodeCountdown = 5 },
         onCancelNextCountdown = { nextEpisodeCountdown = -1 },
+        onOpenWebsite = { openExternalWebsite(context, resolvedSource.originalUrl) },
         onPlayNextEpisode = onPlayNextEpisode,
         onBack = onBack
     )
@@ -242,6 +296,7 @@ private fun YouTubePlayerHost(
     title: String,
     subtitleLabel: String?,
     videoId: String,
+    originalUrl: String,
     initialPositionMs: Long,
     autoplayNext: Boolean,
     isFullscreen: Boolean,
@@ -251,6 +306,7 @@ private fun YouTubePlayerHost(
     onSaveProgress: (positionMs: Long, durationMs: Long) -> Unit,
     onTriggerNextCountdown: () -> Unit,
     onCancelNextCountdown: () -> Unit,
+    onOpenWebsite: () -> Unit,
     onPlayNextEpisode: (Episode) -> Unit,
     onBack: () -> Unit
 ) {
@@ -403,6 +459,7 @@ private fun YouTubePlayerHost(
                         isLoading = true
                         reloadToken++
                     },
+                    onOpenWebsite = if (originalUrl.startsWith("https://")) onOpenWebsite else null,
                     onBack = onBack
                 )
             }
@@ -419,6 +476,298 @@ private fun YouTubePlayerHost(
                     .navigationBarsPadding()
                     .padding(20.dp)
             )
+        }
+    }
+}
+
+@Composable
+private fun HostedEmbedPlayerHost(
+    title: String,
+    subtitleLabel: String?,
+    providerName: String,
+    embedUrl: String,
+    originalUrl: String,
+    isFullscreen: Boolean,
+    nextEpisode: Episode?,
+    onToggleFullscreen: () -> Unit,
+    onOpenWebsite: () -> Unit,
+    onPlayNextEpisode: (Episode) -> Unit,
+    onBack: () -> Unit
+) {
+    var reloadToken by remember { mutableIntStateOf(0) }
+    var isLoading by remember(embedUrl, reloadToken) { mutableStateOf(true) }
+    var embedError by remember(embedUrl, reloadToken) { mutableStateOf<String?>(null) }
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+    ) {
+        HostedEmbedWebPlayer(
+            embedUrl = embedUrl,
+            providerName = providerName,
+            reloadToken = reloadToken,
+            onLoaded = { isLoading = false },
+            onError = { message ->
+                isLoading = false
+                embedError = message
+            }
+        )
+
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth()
+                .background(
+                    Brush.verticalGradient(
+                        listOf(Color.Black.copy(alpha = 0.85f), Color.Transparent)
+                    )
+                )
+                .statusBarsPadding()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f)
+            ) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.testTag("player_back_button")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Column {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleMedium,
+                        color = Color.White,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    if (!subtitleLabel.isNullOrBlank()) {
+                        Text(
+                            text = subtitleLabel,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = VeloraOnSurfaceMuted,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                }
+            }
+
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Surface(
+                    color = VeloraCrimson.copy(alpha = 0.25f),
+                    shape = RoundedCornerShape(6.dp),
+                    border = BorderStroke(1.dp, VeloraCrimson.copy(alpha = 0.6f))
+                ) {
+                    Text(
+                        text = providerName,
+                        style = MaterialTheme.typography.labelSmall,
+                        color = Color.White,
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                    )
+                }
+                if (originalUrl.startsWith("https://")) {
+                    IconButton(
+                        onClick = onOpenWebsite,
+                        modifier = Modifier.testTag("embed_open_website_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                            contentDescription = "Open Website",
+                            tint = Color.White
+                        )
+                    }
+                }
+                if (nextEpisode != null) {
+                    TextButton(
+                        onClick = { onPlayNextEpisode(nextEpisode) },
+                        modifier = Modifier.testTag("next_episode_button")
+                    ) {
+                        Icon(Icons.Filled.SkipNext, contentDescription = null, tint = Color.White)
+                        Spacer(Modifier.width(4.dp))
+                        Text("Next Ep", color = Color.White)
+                    }
+                }
+                IconButton(onClick = onToggleFullscreen) {
+                    Icon(
+                        imageVector = if (isFullscreen) Icons.Filled.FullscreenExit else Icons.Filled.Fullscreen,
+                        contentDescription = "Toggle fullscreen",
+                        tint = Color.White
+                    )
+                }
+            }
+        }
+
+        if (isLoading && embedError == null) {
+            CircularProgressIndicator(
+                color = VeloraCrimson,
+                modifier = Modifier.align(Alignment.Center)
+            )
+        }
+
+        if (embedError != null) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.82f))
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                PlaybackErrorCard(
+                    title = "$providerName Playback Unavailable",
+                    message = embedError!!,
+                    sourceBadge = providerName,
+                    canRetry = true,
+                    onRetry = {
+                        embedError = null
+                        isLoading = true
+                        reloadToken++
+                    },
+                    onOpenWebsite = if (originalUrl.startsWith("https://")) onOpenWebsite else null,
+                    onBack = onBack
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun OrdinaryWebpageViewingCard(
+    title: String,
+    subtitleLabel: String?,
+    providerName: String,
+    explanation: String,
+    targetUrl: String,
+    nextEpisode: Episode?,
+    onOpenWebsite: () -> Unit,
+    onPlayNextEpisode: (Episode) -> Unit,
+    onBack: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black)
+            .statusBarsPadding()
+            .navigationBarsPadding()
+            .padding(24.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                IconButton(
+                    onClick = onBack,
+                    modifier = Modifier.testTag("player_back_button")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+                }
+                Column {
+                    Text(title, style = MaterialTheme.typography.titleMedium, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (!subtitleLabel.isNullOrBlank()) {
+                        Text(subtitleLabel, style = MaterialTheme.typography.bodySmall, color = VeloraOnSurfaceMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
+                }
+            }
+            if (nextEpisode != null) {
+                TextButton(onClick = { onPlayNextEpisode(nextEpisode) }) {
+                    Icon(Icons.Filled.SkipNext, contentDescription = null, tint = Color.White)
+                    Spacer(Modifier.width(4.dp))
+                    Text("Next Ep", color = Color.White)
+                }
+            }
+        }
+
+        Surface(
+            color = VeloraSurfaceElevated,
+            shape = RoundedCornerShape(18.dp),
+            border = BorderStroke(1.dp, VeloraOutline),
+            modifier = Modifier
+                .align(Alignment.Center)
+                .widthIn(max = 480.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Language,
+                    contentDescription = null,
+                    tint = VeloraGold,
+                    modifier = Modifier.size(46.dp)
+                )
+                Surface(
+                    color = VeloraGold.copy(alpha = 0.16f),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Text(
+                        text = "$providerName • Webpage",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = VeloraGold,
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                }
+                Text(
+                    text = "External Webpage Source",
+                    style = MaterialTheme.typography.headlineSmall,
+                    color = VeloraOnBackground,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = explanation,
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = VeloraOnSurfaceMuted,
+                    textAlign = TextAlign.Center
+                )
+                Text(
+                    text = targetUrl,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = VeloraOnSurfaceMuted.copy(alpha = 0.8f),
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center
+                )
+                Spacer(Modifier.height(4.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onBack,
+                        border = BorderStroke(1.dp, VeloraOutline),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("webpage_back_button")
+                    ) {
+                        Text("Go Back", color = VeloraOnBackground)
+                    }
+                    Button(
+                        onClick = onOpenWebsite,
+                        colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson),
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("open_website_button")
+                    ) {
+                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(6.dp))
+                        Text("Open Website", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
         }
     }
 }
@@ -441,6 +790,7 @@ private fun ExoDirectVideoPlayerHost(
     onSaveProgress: (positionMs: Long, durationMs: Long) -> Unit,
     onTriggerNextCountdown: () -> Unit,
     onCancelNextCountdown: () -> Unit,
+    onOpenWebsite: () -> Unit,
     onPlayNextEpisode: (Episode) -> Unit,
     onBack: () -> Unit
 ) {
@@ -614,6 +964,7 @@ private fun ExoDirectVideoPlayerHost(
                         exoPlayer.prepare()
                         exoPlayer.play()
                     },
+                    onOpenWebsite = if (streamUrl.startsWith("https://")) onOpenWebsite else null,
                     onBack = onBack
                 )
             }
@@ -1005,6 +1356,7 @@ private fun PlaybackErrorCard(
     sourceBadge: String,
     canRetry: Boolean,
     onRetry: () -> Unit,
+    onOpenWebsite: (() -> Unit)? = null,
     onBack: () -> Unit
 ) {
     Surface(
@@ -1076,7 +1428,29 @@ private fun PlaybackErrorCard(
                     }
                 }
             }
+            if (onOpenWebsite != null) {
+                OutlinedButton(
+                    onClick = onOpenWebsite,
+                    border = BorderStroke(1.dp, VeloraGold.copy(alpha = 0.65f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("player_error_open_website_button")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = VeloraGold, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Open Website", color = VeloraGold)
+                }
+            }
         }
+    }
+}
+
+private fun openExternalWebsite(context: Context, url: String) {
+    val clean = url.trim()
+    if (clean.isBlank()) return
+    runCatching {
+        context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(clean)))
     }
 }
 

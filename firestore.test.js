@@ -403,6 +403,52 @@ test("Admin catalog videoSourceType validation & TV show seasons/episodes access
       })
   );
 
+  // Admin can save multi-host auto/embed catalog entries & episodes with providerName
+  await assertSucceeds(
+    adminDb.collection("catalog").doc("movie_vimeo").set({
+      title: "Vimeo Showcase",
+      synopsis: "Official embedded Vimeo showcase",
+      mediaType: "movie",
+      genres: ["Documentary"],
+      releaseYear: 2026,
+      runtimeMinutes: 82,
+      ageRating: "PG-13",
+      director: "Notflix Studios",
+      cast: ["Cast A"],
+      posterKey: "img_poster_chronicle",
+      backdropKey: "img_hero_nebula",
+      videoUrl: "https://vimeo.com/76979871",
+      videoSourceType: "auto",
+      providerName: "Vimeo",
+      isFeatured: false,
+      isVisible: true,
+      isKidsFriendly: true,
+      trendingScore: 88,
+      popularityRank: 5,
+      createdAt: ts,
+      updatedAt: ts,
+    })
+  );
+
+  await assertSucceeds(
+    adminDb.collection("catalog").doc("show_1")
+      .collection("seasons").doc("season-1")
+      .collection("episodes").doc("s1e_embed").set({
+        seasonNumber: 1,
+        episodeNumber: 2,
+        title: "Episode Two (Vimeo Embed)",
+        synopsis: "Multi-host embed episode",
+        runtimeMinutes: 44,
+        thumbnailKey: "img_hero_nebula",
+        videoUrl: "https://vimeo.com/76979871",
+        videoSourceType: "embed",
+        providerName: "Vimeo",
+        isVisible: true,
+        createdAt: ts,
+        updatedAt: ts,
+      })
+  );
+
   // Non-admin member can read visible seasons/episodes but CANNOT create or edit them
   await assertSucceeds(
     aliceDb.collection("catalog").doc("show_1")

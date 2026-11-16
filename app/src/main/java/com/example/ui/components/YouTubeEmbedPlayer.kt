@@ -8,10 +8,12 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -66,11 +68,16 @@ fun YouTubeEmbedPlayer(
 
     val webView = remember(videoId, reloadToken) {
         WebView(context).apply {
+            val webViewInstance = this
             setBackgroundColor(android.graphics.Color.BLACK)
             layoutParams = ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT
             )
+            CookieManager.getInstance().apply {
+                setAcceptCookie(true)
+                setAcceptThirdPartyCookies(webViewInstance, true)
+            }
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -166,6 +173,19 @@ fun YouTubeEmbedPlayer(
                         val errDesc = error?.description?.toString() ?: "Unknown WebView error"
                         Log.e("YouTubeEmbedPlayer", "WebView main frame error: $errDesc")
                         latestOnError("WebView connection error: $errDesc")
+                    }
+                }
+
+                override fun onReceivedHttpError(
+                    view: WebView?,
+                    request: WebResourceRequest?,
+                    errorResponse: WebResourceResponse?
+                ) {
+                    if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 0) >= 400) {
+                        playerReady = true
+                        val status = errorResponse?.statusCode ?: 0
+                        Log.e("YouTubeEmbedPlayer", "WebView HTTP error $status for videoId=$videoId")
+                        latestOnError("YouTube returned HTTP $status while loading the player.")
                     }
                 }
             }

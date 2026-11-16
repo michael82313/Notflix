@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import android.net.Uri
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -16,7 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -71,6 +72,8 @@ import com.example.data.model.SeasonDraft
 import com.example.data.model.SubscriptionPlan
 import com.example.data.model.UserAccount
 import com.example.data.model.UserSubscription
+import com.example.data.repository.MediaAssetCategory
+import com.example.data.repository.MediaUploadState
 import com.example.ui.theme.VeloraBackground
 import com.example.ui.theme.VeloraCoral
 import com.example.ui.theme.VeloraCrimson
@@ -81,6 +84,7 @@ import com.example.ui.theme.VeloraOnBackground
 import com.example.ui.theme.VeloraOnSurfaceMuted
 import com.example.ui.theme.VeloraOutline
 import com.example.ui.theme.VeloraSurfaceElevated
+import com.example.util.DetectedSourceKind
 import com.example.util.VideoSourceType
 import com.example.util.VideoSourceUtils
 
@@ -95,6 +99,9 @@ fun AdminDashboardScreen(
     isSavingCatalog: Boolean,
     isLoadingSeriesSeasons: Boolean,
     loadedSeriesSeasons: List<SeasonDraft>,
+    mediaUploadStates: Map<String, MediaUploadState> = emptyMap(),
+    onUploadMedia: ((fieldKey: String, uri: Uri, category: MediaAssetCategory, contentFolderHint: String, onUploaded: (String) -> Unit) -> Unit)? = null,
+    onClearUploadState: ((String?) -> Unit)? = null,
     onBack: () -> Unit,
     onSeedCatalog: () -> Unit,
     onSyncSubscriptionSchemas: () -> Unit,
@@ -276,8 +283,17 @@ fun AdminDashboardScreen(
                             }
                         }
 
-                        items(catalog, key = { it.id }) { item ->
-                            val sourceTypeLabel = VideoSourceType.fromKey(item.videoSourceType).label
+                        itemsIndexed(catalog, key = { idx, item -> "${item.id.ifBlank { "cat" }}_$idx" }) { _, item ->
+                            val resolvedSummary = remember(item.id, item.videoUrl, item.hlsUrl, item.videoSourceType, item.providerName) {
+                                VideoSourceUtils.resolveForPlayback(
+                                    item.preferredStreamUrl,
+                                    item.videoSourceType,
+                                    item.providerName
+                                )
+                            }
+                            val badgeText = item.providerName?.takeIf { it.isNotBlank() }
+                                ?: resolvedSummary.providerName?.takeIf { it.isNotBlank() }
+                                ?: VideoSourceType.fromKey(item.videoSourceType).label
                             Surface(
                                 color = VeloraSurfaceElevated,
                                 shape = RoundedCornerShape(12.dp),
@@ -310,7 +326,7 @@ fun AdminDashboardScreen(
                                                     shape = RoundedCornerShape(6.dp)
                                                 ) {
                                                     Text(
-                                                        text = sourceTypeLabel,
+                                                        text = badgeText,
                                                         style = MaterialTheme.typography.labelSmall,
                                                         color = VeloraCoral,
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
@@ -379,7 +395,7 @@ fun AdminDashboardScreen(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(genres, key = { it.id }) { genre ->
+                        itemsIndexed(genres, key = { idx, genre -> "${genre.id.ifBlank { "genre" }}_$idx" }) { _, genre ->
                             Surface(
                                 color = VeloraSurfaceElevated,
                                 shape = RoundedCornerShape(12.dp),
@@ -415,7 +431,10 @@ fun AdminDashboardScreen(
                         contentPadding = PaddingValues(16.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        items(users, key = { it.userId }) { user ->
+                        itemsIndexed(
+                            users,
+                            key = { idx, user -> "${user.id.ifBlank { user.userId }.ifBlank { "user" }}_$idx" }
+                        ) { _, user ->
                             Surface(
                                 color = VeloraSurfaceElevated,
                                 shape = RoundedCornerShape(12.dp),
@@ -472,18 +491,24 @@ fun AdminDashboardScreen(
             loadedSeriesSeasons = loadedSeriesSeasons,
             isLoadingSeriesSeasons = isLoadingSeriesSeasons,
             isSaving = isSavingCatalog,
+            mediaUploadStates = mediaUploadStates,
+            onUploadMedia = onUploadMedia,
+            onClearUploadState = onClearUploadState,
             onDismiss = {
+                onClearUploadState?.invoke(null)
                 createMediaType = null
                 editingItem = null
             },
             onSaveMovie = { itemToSave ->
                 onSaveCatalogItem(itemToSave) {
+                    onClearUploadState?.invoke(null)
                     createMediaType = null
                     editingItem = null
                 }
             },
             onSaveSeries = { series, seasonDrafts, removedSeasonIds, removedEpisodeRefs ->
                 onSaveSeriesWithSeasons(series, seasonDrafts, removedSeasonIds, removedEpisodeRefs) {
+                    onClearUploadState?.invoke(null)
                     createMediaType = null
                     editingItem = null
                 }
@@ -599,7 +624,7 @@ private fun AdminSubscriptionArchitectureTab(
             )
         }
 
-        items(plans, key = { it.id.ifBlank { it.tierCode } }) { plan ->
+        itemsIndexed(plans, key = { idx, plan -> "${plan.id.ifBlank { plan.tierCode }.ifBlank { "plan" }}_$idx" }) { _, plan ->
             Surface(
                 color = VeloraSurfaceElevated,
                 shape = RoundedCornerShape(12.dp),
@@ -703,7 +728,7 @@ private fun AdminSubscriptionArchitectureTab(
             )
         }
 
-        items(userSubscriptions, key = { it.userId }) { sub ->
+        itemsIndexed(userSubscriptions, key = { idx, sub -> "${sub.userId.ifBlank { "sub" }}_$idx" }) { _, sub ->
             Surface(
                 color = VeloraSurfaceElevated,
                 shape = RoundedCornerShape(12.dp),
@@ -763,8 +788,9 @@ private fun SeriesEpisodeManagerDialog(
     var epTitle by remember { mutableStateOf("") }
     var epSynopsis by remember { mutableStateOf("") }
     var epRuntime by remember { mutableStateOf("42") }
-    var epSourceType by remember { mutableStateOf(VideoSourceType.MP4) }
+    var epSourceType by remember { mutableStateOf(VideoSourceType.AUTO) }
     var epVideoUrl by remember { mutableStateOf("") }
+    var epProviderName by remember { mutableStateOf("") }
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
     AlertDialog(
@@ -835,13 +861,21 @@ private fun SeriesEpisodeManagerDialog(
                 OutlinedTextField(
                     value = epVideoUrl,
                     onValueChange = { epVideoUrl = it },
-                    label = { Text("Episode ${epSourceType.label} URL*") },
+                    label = { Text("Episode Video / Webpage URL*") },
                     placeholder = { Text(placeholderForSourceType(epSourceType)) },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = epProviderName,
+                    onValueChange = { epProviderName = it.take(80) },
+                    label = { Text("Provider Name (Optional)") },
+                    placeholder = { Text("e.g. YouTube, Vimeo, CDN") },
                     singleLine = true
                 )
                 SourceValidationBadge(
                     url = epVideoUrl,
                     sourceType = epSourceType,
+                    customProviderName = epProviderName,
                     required = true
                 )
                 errorMsg?.let { Text(it, color = VeloraError, style = MaterialTheme.typography.bodySmall) }
@@ -862,6 +896,7 @@ private fun SeriesEpisodeManagerDialog(
                         !check.isValid -> errorMsg = check.errorOrNull
                         else -> {
                             val cleanUrl = epVideoUrl.trim()
+                            val kind = VideoSourceUtils.detectClassification(cleanUrl, epProviderName).detectedKind
                             onAddEpisode(
                                 "season-$sNum",
                                 Episode(
@@ -874,7 +909,8 @@ private fun SeriesEpisodeManagerDialog(
                                     thumbnailKey = series.backdropKey,
                                     videoUrl = cleanUrl,
                                     videoSourceType = epSourceType.key,
-                                    hlsUrl = if (epSourceType == VideoSourceType.HLS) cleanUrl else null,
+                                    providerName = epProviderName.trim().takeIf { it.isNotBlank() },
+                                    hlsUrl = if (epSourceType == VideoSourceType.HLS || kind == DetectedSourceKind.HLS_STREAM) cleanUrl else null,
                                     isVisible = true
                                 )
                             )

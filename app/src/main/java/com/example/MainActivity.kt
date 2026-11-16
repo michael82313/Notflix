@@ -2,6 +2,7 @@ package com.example
 
 import android.os.Bundle
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.background
@@ -41,6 +42,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -261,21 +263,73 @@ private fun AuthenticatedVeloraApp(
         return
     }
 
+    var showPreProfileAdmin by remember(currentUserId) { mutableStateOf(false) }
+
     if (!hasSelectedProfile) {
-        ProfileSelectorScreen(
-            profilesState = profilesState,
-            genres = genres,
-            isAdmin = isAdmin,
-            accountIdentifier = account?.email?.takeIf { it.isNotBlank() } ?: account?.phoneNumber,
-            onSelectProfile = { viewModel.selectProfile(it) },
-            onOpenAdminDashboard = { navController.navigate(VeloraRoute.Admin) },
-            onSignOut = { signOutFromVelora(credentialManager, scope) },
-            onCreateProfile = { name, avatar, isKids, g -> viewModel.createProfile(name, avatar, isKids, g) },
-            onUpdateProfile = { id, name, avatar, isKids, g, lang, subs ->
-                viewModel.updateProfile(id, name, avatar, isKids, g, lang, subs)
-            },
-            onDeleteProfile = { viewModel.deleteProfile(it) }
-        )
+        if (showPreProfileAdmin) {
+            BackHandler { showPreProfileAdmin = false }
+            Scaffold(
+                containerColor = VeloraBackground,
+                contentWindowInsets = WindowInsets(0, 0, 0, 0),
+                snackbarHost = { SnackbarHost(snackbarHostState) }
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                        .background(VeloraBackground)
+                ) {
+                    AdminDashboardScreen(
+                        isAdmin = isAdmin,
+                        catalog = rawCatalog,
+                        genres = genres,
+                        users = adminUsers,
+                        subscriptionPlans = subscriptionPlans,
+                        userSubscriptions = adminUserSubscriptions,
+                        isSavingCatalog = isSavingCatalog,
+                        isLoadingSeriesSeasons = isLoadingSeriesStructure,
+                        loadedSeriesSeasons = editingSeriesSeasons,
+                        mediaUploadStates = mediaUploadStates,
+                        onUploadMedia = { fieldKey, uri, category, folderHint, onUploaded ->
+                            viewModel.uploadMediaFile(fieldKey, uri, category, folderHint) { url, _, _ ->
+                                onUploaded(url)
+                            }
+                        },
+                        onClearUploadState = viewModel::clearMediaUploadState,
+                        onBack = { showPreProfileAdmin = false },
+                        onSeedCatalog = viewModel::seedCatalogNow,
+                        onSyncSubscriptionSchemas = viewModel::syncSubscriptionSchemasNow,
+                        onPrepareSeriesEditor = viewModel::prepareSeriesEditor,
+                        onSaveCatalogItem = viewModel::saveCatalogItem,
+                        onSaveSeriesWithSeasons = viewModel::saveSeriesWithSeasons,
+                        onDeleteCatalogItem = viewModel::deleteCatalogItem,
+                        onAddSeason = viewModel::addSeason,
+                        onAddEpisode = viewModel::addEpisode,
+                        onSaveGenre = viewModel::saveGenre,
+                        onDeleteGenre = viewModel::deleteGenre,
+                        onToggleUserAdmin = viewModel::setUserAdminRole
+                    )
+                }
+            }
+        } else {
+            ProfileSelectorScreen(
+                profilesState = profilesState,
+                genres = genres,
+                isAdmin = isAdmin,
+                accountIdentifier = account?.email?.takeIf { it.isNotBlank() } ?: account?.phoneNumber,
+                onSelectProfile = {
+                    showPreProfileAdmin = false
+                    viewModel.selectProfile(it)
+                },
+                onOpenAdminDashboard = { showPreProfileAdmin = true },
+                onSignOut = { signOutFromVelora(credentialManager, scope) },
+                onCreateProfile = { name, avatar, isKids, g -> viewModel.createProfile(name, avatar, isKids, g) },
+                onUpdateProfile = { id, name, avatar, isKids, g, lang, subs ->
+                    viewModel.updateProfile(id, name, avatar, isKids, g, lang, subs)
+                },
+                onDeleteProfile = { viewModel.deleteProfile(it) }
+            )
+        }
         return
     }
 
@@ -519,6 +573,13 @@ private fun AuthenticatedVeloraApp(
                         isSavingCatalog = isSavingCatalog,
                         isLoadingSeriesSeasons = isLoadingSeriesStructure,
                         loadedSeriesSeasons = editingSeriesSeasons,
+                        mediaUploadStates = mediaUploadStates,
+                        onUploadMedia = { fieldKey, uri, category, folderHint, onUploaded ->
+                            viewModel.uploadMediaFile(fieldKey, uri, category, folderHint) { url, _, _ ->
+                                onUploaded(url)
+                            }
+                        },
+                        onClearUploadState = viewModel::clearMediaUploadState,
                         onBack = { navController.popBackStack() },
                         onSeedCatalog = viewModel::seedCatalogNow,
                         onSyncSubscriptionSchemas = viewModel::syncSubscriptionSchemasNow,
@@ -603,6 +664,11 @@ private fun AuthenticatedVeloraApp(
                             activeEp != null -> activeEp.videoSourceType
                             else -> item.videoSourceType
                         }
+                        val streamProviderName = when {
+                            route.isTrailer -> null
+                            activeEp != null -> activeEp.providerName
+                            else -> item.providerName
+                        }
                         val savedProgress = progressList.firstOrNull {
                             it.contentId == item.id && (route.episodeId == null || it.episodeId == route.episodeId)
                         }
@@ -618,6 +684,7 @@ private fun AuthenticatedVeloraApp(
                             subtitleLabel = subtitleLabel,
                             streamUrl = streamUrl,
                             streamSourceType = streamSourceType,
+                            streamProviderName = streamProviderName,
                             episodeId = activeEp?.id ?: route.episodeId,
                             seasonNumber = activeEp?.seasonNumber ?: route.seasonNumber,
                             episodeNumber = activeEp?.episodeNumber ?: route.episodeNumber,
