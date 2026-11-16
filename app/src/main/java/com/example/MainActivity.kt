@@ -314,11 +314,18 @@ private fun AuthenticatedVeloraApp(
                         NavigationBarItem(
                             selected = selected,
                             onClick = {
-                                if (dest.route == VeloraRoute.MyList) myListInitialTab = 0
-                                navController.navigate(dest.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
+                                if (dest.route == VeloraRoute.Home) {
+                                    navController.navigate(VeloraRoute.Home) {
+                                        popUpTo<VeloraRoute.Home> { inclusive = false }
+                                        launchSingleTop = true
+                                    }
+                                } else {
+                                    if (dest.route == VeloraRoute.MyList) myListInitialTab = 0
+                                    navController.navigate(dest.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
                             },
                             icon = {
@@ -361,11 +368,18 @@ private fun AuthenticatedVeloraApp(
                         NavigationRailItem(
                             selected = selected,
                             onClick = {
-                                if (dest.route == VeloraRoute.MyList) myListInitialTab = 0
-                                navController.navigate(dest.route) {
-                                    popUpTo(navController.graph.findStartDestination().id) { saveState = true }
-                                    launchSingleTop = true
-                                    restoreState = true
+                                if (dest.route == VeloraRoute.Home) {
+                                    navController.navigate(VeloraRoute.Home) {
+                                        popUpTo<VeloraRoute.Home> { inclusive = false }
+                                        launchSingleTop = true
+                                    }
+                                } else {
+                                    if (dest.route == VeloraRoute.MyList) myListInitialTab = 0
+                                    navController.navigate(dest.route) {
+                                        popUpTo(navController.graph.findStartDestination().id) { saveState = true }
+                                        launchSingleTop = true
+                                        restoreState = true
+                                    }
                                 }
                             },
                             icon = {

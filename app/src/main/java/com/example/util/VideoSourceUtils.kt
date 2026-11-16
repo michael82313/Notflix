@@ -48,6 +48,30 @@ object VideoSourceUtils {
             host == "youtube-nocookie.com"
     }
 
+    fun isGoogleDriveUrl(url: String): Boolean {
+        val trimmed = url.trim()
+        if (trimmed.isBlank()) return false
+        val host = parseUriSafely(trimmed)?.host?.lowercase()?.removePrefix("www.") ?: return false
+        return host.contains("drive.google.com") || host.contains("docs.google.com")
+    }
+
+    fun extractGoogleDriveFileId(url: String): String? {
+        val trimmed = url.trim()
+        if (trimmed.isBlank()) return null
+        val uri = parseUriSafely(trimmed) ?: return null
+        val path = uri.path.orEmpty()
+        val match = Regex("/file/d/([a-zA-Z0-9_-]+)").find(path)
+        if (match != null) return match.groupValues[1]
+        val queryId = parseQueryParam(uri.rawQuery, "id")
+        if (!queryId.isNullOrBlank()) return queryId
+        return null
+    }
+
+    fun convertGoogleDriveUrlToDirectStream(url: String): String {
+        val fileId = extractGoogleDriveFileId(url) ?: return url
+        return "https://drive.google.com/uc?export=download&id=$fileId"
+    }
+
     fun extractYouTubeVideoId(url: String): String? {
         val trimmed = url.trim()
         if (trimmed.isBlank()) return null
@@ -80,6 +104,7 @@ object VideoSourceUtils {
         if (trimmed.isBlank()) return fallback
         return when {
             isYouTubeUrl(trimmed) -> VideoSourceType.YOUTUBE
+            isGoogleDriveUrl(trimmed) -> VideoSourceType.MP4
             trimmed.contains(".m3u8", ignoreCase = true) -> VideoSourceType.HLS
             else -> fallback
         }
@@ -113,6 +138,16 @@ object VideoSourceUtils {
         }
         if (uri.host.isNullOrBlank()) {
             return SourceValidationResult.Invalid("Video URL is missing a valid domain host.")
+        }
+
+        if (isGoogleDriveUrl(trimmed)) {
+            val fileId = extractGoogleDriveFileId(trimmed)
+            if (fileId.isNullOrBlank()) {
+                return SourceValidationResult.Invalid(
+                    "Could not extract a valid file ID from this Google Drive link. Ensure permissions are set to 'Anyone with the link can view' or use Firebase Storage upload."
+                )
+            }
+            return SourceValidationResult.Valid
         }
 
         return when (sourceType) {
@@ -193,23 +228,30 @@ object VideoSourceUtils {
                 validationError = "No playable video source URL is configured for this title."
             )
         }
+        val effectiveUrl = if (isGoogleDriveUrl(trimmed)) {
+            convertGoogleDriveUrlToDirectStream(trimmed)
+        } else {
+            trimmed
+        }
+
         val effectiveType = when {
-            isYouTubeUrl(trimmed) -> VideoSourceType.YOUTUBE
+            isYouTubeUrl(effectiveUrl) -> VideoSourceType.YOUTUBE
             declaredType != null -> {
                 val parsed = VideoSourceType.fromKey(declaredType)
-                if (parsed == VideoSourceType.MP4 && trimmed.contains(".m3u8", ignoreCase = true)) {
+                if (parsed == VideoSourceType.MP4 && effectiveUrl.contains(".m3u8", ignoreCase = true)) {
                     VideoSourceType.HLS
                 } else {
                     parsed
                 }
             }
-            trimmed.contains(".m3u8", ignoreCase = true) -> VideoSourceType.HLS
+            effectiveUrl.contains(".m3u8", ignoreCase = true) -> VideoSourceType.HLS
+            isGoogleDriveUrl(trimmed) -> VideoSourceType.MP4
             else -> VideoSourceType.MP4
         }
-        val validation = validateVideoSource(trimmed, effectiveType, required = true)
-        val youtubeId = if (effectiveType == VideoSourceType.YOUTUBE) extractYouTubeVideoId(trimmed) else null
+        val validation = validateVideoSource(effectiveUrl, effectiveType, required = true)
+        val youtubeId = if (effectiveType == VideoSourceType.YOUTUBE) extractYouTubeVideoId(effectiveUrl) else null
         return ResolvedPlaybackSource(
-            url = trimmed,
+            url = effectiveUrl,
             sourceType = effectiveType,
             youtubeVideoId = youtubeId,
             validationError = validation.errorOrNull
