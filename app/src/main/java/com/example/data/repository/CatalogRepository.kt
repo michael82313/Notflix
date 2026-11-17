@@ -6,6 +6,8 @@ import com.example.data.model.CatalogItem
 import com.example.data.model.ContentRating
 import com.example.data.model.Episode
 import com.example.data.model.Genre
+import com.example.data.model.HomepageRowRule
+import com.example.data.model.HomepageSettings
 import com.example.data.model.PlaybackProgress
 import com.example.data.model.Season
 import com.example.data.model.SeasonDraft
@@ -191,15 +193,123 @@ class CatalogRepository(
     }
 
     fun computeSimilarTitles(target: CatalogItem, catalog: List<CatalogItem>, isKids: Boolean): List<CatalogItem> {
-        val targetGenres = target.genres.map { it.lowercase() }.toSet()
-        return catalog
-            .filter { it.id != target.id && it.isVisible && (!isKids || it.isKidsFriendly) }
-            .sortedByDescending { candidate ->
-                val overlap = candidate.genres.count { it.lowercase() in targetGenres }
-                val sameType = if (candidate.mediaType == target.mediaType) 1 else 0
-                overlap * 100 + sameType * 20 + candidate.trendingScore / 50
+        return com.example.ui.state.HomeFeedRowBuilder.computeSimilarForSeed(
+            seed = target,
+            pool = catalog.filter { it.isPlayableNow },
+            dislikedIds = emptySet(),
+            isKids = isKids
+        ).take(8)
+    }
+
+    // --- Homepage Management Configuration ---
+
+    fun observeHomepageSettings(): Flow<HomepageSettings> {
+        val docRef = db.collection("homepageConfig").document("global")
+        return docRef.snapshots()
+            .map { snap -> FirestoreDocumentMapper.toHomepageSettings(snap) ?: HomepageSettings() }
+            .catch { error ->
+                val firestoreError = generateSequence(error) { it.cause }
+                    .filterIsInstance<FirebaseFirestoreException>()
+                    .firstOrNull()
+                if (firestoreError == null && error is CancellationException) throw error
+                if (auth.currentUser != null) {
+                    handleFirestoreError(firestoreError ?: error, OperationType.GET, docRef.path)
+                }
+                emit(HomepageSettings())
             }
-            .take(8)
+    }
+
+    fun observeHomepageRowRules(): Flow<List<HomepageRowRule>> {
+        val colRef = db.collection("homepageConfig").document("global").collection("rows")
+        return colRef.snapshots()
+            .map { snap ->
+                val remote = FirestoreDocumentMapper.toHomepageRowRules(snap)
+                if (remote.isEmpty()) com.example.ui.state.HomeFeedRowBuilder.defaultRowRules()
+                else com.example.ui.state.HomeFeedRowBuilder.mergeWithDefaultRules(remote)
+            }
+            .catch { error ->
+                val firestoreError = generateSequence(error) { it.cause }
+                    .filterIsInstance<FirebaseFirestoreException>()
+                    .firstOrNull()
+                if (firestoreError == null && error is CancellationException) throw error
+                if (auth.currentUser != null) {
+                    handleFirestoreError(firestoreError ?: error, OperationType.LIST, colRef.path)
+                }
+                emit(com.example.ui.state.HomeFeedRowBuilder.defaultRowRules())
+            }
+    }
+
+    suspend fun saveHomepageSettings(settings: HomepageSettings): Result<Unit> = runCatching {
+        requireUserId()
+        val docRef = db.collection("homepageConfig").document("global")
+        try {
+            docRef.set(settings.toWriteMap()).await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, docRef.path)
+            throw e
+        }
+    }
+
+    suspend fun saveHomepageRowRules(rules: List<HomepageRowRule>): Result<Unit> = runCatching {
+        requireUserId()
+        val colRef = db.collection("homepageConfig").document("global").collection("rows")
+        try {
+            val batch = db.batch()
+            rules.forEachIndexed { idx, rule ->
+                val docId = rule.id.ifBlank { rule.rowKey }.take(80)
+                val normalized = rule.copy(id = docId, rowKey = docId, displayOrder = idx)
+                batch.set(colRef.document(docId), normalized.toWriteMap())
+            }
+            batch.commit().await()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            handleFirestoreError(e, OperationType.WRITE, colRef.path)
+            throw e
+        }
+    }
+
+    suspend fun resetHomepageLayout(): Result<Unit> = runCatching {
+        requireUserId()
+        saveHomepageSettings(HomepageSettings()).getOrThrow()
+        saveHomepageRowRules(com.example.ui.state.HomeFeedRowBuilder.defaultRowRules()).getOrThrow()
+    }
+
+    suspend fun loadVisibleEpisodesForSeries(seriesId: String): List<Episode> {
+        if (seriesId.isBlank()) return emptyList()
+        return runCatching {
+            val seasonsSnap = db.collection("catalog").document(seriesId)
+                .collection("seasons")
+                .whereEqualTo("isVisible", true)
+                .get()
+                .await()
+            val remoteSeasons = FirestoreDocumentMapper.toSeasons(seasonsSnap).sortedBy { it.seasonNumber }
+            if (remoteSeasons.isEmpty()) {
+                return@runCatching SeedCatalog.defaultSeasonsForSeries(seriesId)
+                    .flatMap { season -> SeedCatalog.defaultEpisodesForSeason(seriesId, season.seasonNumber) }
+                    .sortedWith(compareBy<Episode> { it.seasonNumber }.thenBy { it.episodeNumber })
+            }
+            val collected = mutableListOf<Episode>()
+            for (season in remoteSeasons) {
+                val seasonId = season.id.ifBlank { "season-${season.seasonNumber}" }
+                val epSnap = db.collection("catalog").document(seriesId)
+                    .collection("seasons").document(seasonId)
+                    .collection("episodes")
+                    .whereEqualTo("isVisible", true)
+                    .get()
+                    .await()
+                val remoteEps = FirestoreDocumentMapper.toEpisodes(epSnap)
+                    .ifEmpty { SeedCatalog.defaultEpisodesForSeason(seriesId, season.seasonNumber) }
+                collected += remoteEps
+            }
+            collected.sortedWith(compareBy<Episode> { it.seasonNumber }.thenBy { it.episodeNumber })
+        }.getOrElse {
+            SeedCatalog.defaultSeasonsForSeries(seriesId)
+                .flatMap { season -> SeedCatalog.defaultEpisodesForSeason(seriesId, season.seasonNumber) }
+                .sortedWith(compareBy<Episode> { it.seasonNumber }.thenBy { it.episodeNumber })
+        }
     }
 
     // --- Admin Catalog & Platform Management ---

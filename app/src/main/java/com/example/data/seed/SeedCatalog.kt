@@ -15,6 +15,11 @@ object SeedCatalog {
         Genre(id = "animation", name = "Animation", slug = "animation", displayOrder = 6, isActive = true),
         Genre(id = "adventure", name = "Adventure", slug = "adventure", displayOrder = 7, isActive = true),
         Genre(id = "documentary", name = "Documentary", slug = "documentary", displayOrder = 8, isActive = true),
+        Genre(id = "horror", name = "Horror", slug = "horror", displayOrder = 9, isActive = true),
+        Genre(id = "mystery", name = "Mystery", slug = "mystery", displayOrder = 10, isActive = true),
+        Genre(id = "comedy", name = "Comedy", slug = "comedy", displayOrder = 11, isActive = true),
+        Genre(id = "anime", name = "Anime", slug = "anime", displayOrder = 12, isActive = true),
+        Genre(id = "romance", name = "Romance", slug = "romance", displayOrder = 13, isActive = true),
     )
 
     val defaultItems: List<CatalogItem> = listOf(
@@ -38,7 +43,11 @@ object SeedCatalog {
             isVisible = true,
             isKidsFriendly = false,
             trendingScore = 980,
-            popularityRank = 1
+            popularityRank = 1,
+            tags = listOf("Sci-Fi", "Cyberpunk", "Superhero"),
+            keywords = listOf("futuristic", "amsterdam", "ai", "orbital"),
+            isStaffPick = true,
+            isAwardWinning = true
         ),
         CatalogItem(
             id = "sintel-chronicles",
@@ -60,14 +69,17 @@ object SeedCatalog {
             isVisible = true,
             isKidsFriendly = true,
             trendingScore = 940,
-            popularityRank = 2
+            popularityRank = 2,
+            tags = listOf("Feel-Good", "Short Film", "Award-Winning"),
+            keywords = listOf("dragon", "journey", "quest"),
+            isAwardWinning = true
         ),
         CatalogItem(
             id = "midnight-bridge",
             title = "Midnight Bridge",
             synopsis = "When an encrypted transit ledger vanishes in the rain-drenched lower ward, an investigative archivist uncovers a citywide conspiracy spanning three decades.",
             mediaType = "series",
-            genres = listOf("Thriller", "Drama"),
+            genres = listOf("Thriller", "Drama", "Mystery"),
             releaseYear = 2026,
             runtimeMinutes = 46,
             ageRating = "TV-14",
@@ -82,7 +94,10 @@ object SeedCatalog {
             isVisible = true,
             isKidsFriendly = false,
             trendingScore = 965,
-            popularityRank = 1
+            popularityRank = 1,
+            tags = listOf("Crime", "Binge-Worthy", "Suspense"),
+            keywords = listOf("conspiracy", "detective", "neo-noir"),
+            isStaffPick = true
         ),
         CatalogItem(
             id = "coastal-horizon",
@@ -170,7 +185,9 @@ object SeedCatalog {
             isVisible = true,
             isKidsFriendly = false,
             trendingScore = 955,
-            popularityRank = 3
+            popularityRank = 3,
+            tags = listOf("Binge-Worthy", "Space", "Mystery"),
+            keywords = listOf("nebula", "transmission", "station")
         ),
         CatalogItem(
             id = "aurora-crown",
@@ -325,6 +342,129 @@ object SeedCatalog {
             isKidsFriendly = true,
             trendingScore = 830,
             popularityRank = 8
+        ),
+        CatalogItem(
+            id = "hollow-signal",
+            title = "Hollow Signal",
+            synopsis = "A night-shift storm spotter alone in an abandoned mountain relay station hears an eerie distress call repeating her own voice from decades earlier.",
+            mediaType = "movie",
+            genres = listOf("Horror", "Mystery", "Thriller"),
+            releaseYear = 2026,
+            runtimeMinutes = 98,
+            ageRating = "PG-13",
+            director = "Marcus Vance",
+            cast = listOf("Claire Ashford", "Julian Ward"),
+            posterKey = "img_poster_chronicle",
+            backdropKey = "img_poster_chronicle",
+            trailerUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
+            videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerMeltdowns.mp4",
+            hlsUrl = null,
+            isFeatured = false,
+            isVisible = true,
+            isKidsFriendly = false,
+            trendingScore = 915,
+            popularityRank = 9,
+            tags = listOf("Supernatural", "Dark Suspense"),
+            keywords = listOf("haunted", "radio", "mountain", "ghost")
+        ),
+        CatalogItem(
+            id = "blackwater-manor",
+            title = "Blackwater Manor",
+            synopsis = "Inheriting a misty coastal estate, a genealogist unlocks sealed wing corridors where every portrait hides an unsolved disappearance.",
+            mediaType = "series",
+            genres = listOf("Mystery", "Horror", "Drama"),
+            releaseYear = 2026,
+            runtimeMinutes = 48,
+            ageRating = "TV-14",
+            director = "Soren Lindholm",
+            cast = listOf("Eleanor Brooks", "Theo Ashford", "Maya Vance"),
+            posterKey = "img_poster_chronicle",
+            backdropKey = "img_hero_nebula",
+            trailerUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+            videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+            hlsUrl = null,
+            isFeatured = false,
+            isVisible = true,
+            isKidsFriendly = false,
+            trendingScore = 890,
+            popularityRank = 10,
+            tags = listOf("Binge-Worthy", "Gothic", "Crime"),
+            keywords = listOf("mansion", "mystery", "disappearance")
+        ),
+        CatalogItem(
+            id = "turbo-couriers",
+            title = "Turbo Couriers",
+            synopsis = "Three chaotic bike messengers accidentally swap briefcases with a rival culinary crew, sparking a cross-town comedy chase before dinner service.",
+            mediaType = "movie",
+            genres = listOf("Comedy", "Adventure", "Romance"),
+            releaseYear = 2025,
+            runtimeMinutes = 92,
+            ageRating = "PG",
+            director = "Nadia Okafor",
+            cast = listOf("Leo Kim", "Sam Rivera", "Chloe Park"),
+            posterKey = "img_poster_odyssey",
+            backdropKey = "img_poster_horizon",
+            trailerUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+            videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
+            hlsUrl = null,
+            isFeatured = false,
+            isVisible = true,
+            isKidsFriendly = true,
+            trendingScore = 875,
+            popularityRank = 11,
+            tags = listOf("Feel-Good", "Rom-Com", "Fast-Paced"),
+            keywords = listOf("messengers", "comedy", "city", "chase"),
+            isStaffPick = true
+        ),
+        CatalogItem(
+            id = "starblade-academy",
+            title = "Starblade Academy",
+            synopsis = "A clumsy scholarship student discovers an ancient mech sword and teams up with misfit prodigies in a high-spirited anime comedy saga.",
+            mediaType = "series",
+            genres = listOf("Anime", "Comedy", "Action"),
+            releaseYear = 2026,
+            runtimeMinutes = 24,
+            ageRating = "TV-PG",
+            director = "Kenji Sato",
+            cast = listOf("Hana Takahashi", "Renji Sato", "Koa Lee"),
+            posterKey = "img_poster_odyssey",
+            backdropKey = "img_hero_nebula",
+            trailerUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerBlazes.mp4",
+            videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+            hlsUrl = null,
+            isFeatured = false,
+            isVisible = true,
+            isKidsFriendly = true,
+            trendingScore = 925,
+            popularityRank = 4,
+            tags = listOf("Anime", "Feel-Good", "Binge-Worthy", "Superhero"),
+            keywords = listOf("academy", "anime", "mecha", "comedy")
+        ),
+        CatalogItem(
+            id = "solstice-2099",
+            title = "Solstice 2099",
+            synopsis = "Two orbital architects uncover a buried solar vault beneath Europa that could save Earth's dying grid—if they survive reentry.",
+            mediaType = "movie",
+            genres = listOf("Sci-Fi", "Adventure"),
+            releaseYear = 2027,
+            runtimeMinutes = 128,
+            ageRating = "PG-13",
+            director = "Elena Vance",
+            cast = listOf("Aria Chen", "Devon Brooks"),
+            posterKey = "img_hero_nebula",
+            backdropKey = "img_hero_nebula",
+            trailerUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4",
+            videoUrl = "",
+            hlsUrl = null,
+            isFeatured = false,
+            isVisible = true,
+            isKidsFriendly = false,
+            trendingScore = 880,
+            popularityRank = 12,
+            tags = listOf("Recently Announced", "Space"),
+            keywords = listOf("europa", "orbit", "expedition"),
+            isComingSoon = true,
+            expectedReleaseDate = "Jan 22, 2027"
         )
     )
 
@@ -348,6 +488,12 @@ object SeedCatalog {
             )
             "velocity-atlas" -> listOf(
                 Season(id = "season-1", seasonNumber = 1, title = "Season 1: Alpine Passes", year = 2024, isVisible = true)
+            )
+            "blackwater-manor" -> listOf(
+                Season(id = "season-1", seasonNumber = 1, title = "Season 1: The East Wing", year = 2026, isVisible = true)
+            )
+            "starblade-academy" -> listOf(
+                Season(id = "season-1", seasonNumber = 1, title = "Season 1: Mech Orientation", year = 2026, isVisible = true)
             )
             else -> emptyList()
         }
@@ -483,6 +629,34 @@ object SeedCatalog {
                     synopsis = "Exploring the forty-eight switchbacks of northern Italy at sunrise.",
                     runtimeMinutes = 35, thumbnailKey = "img_poster_horizon",
                     videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/WhatCarCanYouGetForAGrand.mp4",
+                    isVisible = true
+                )
+            )
+            "blackwater-manor" -> listOf(
+                Episode(
+                    id = "s1e1", seasonNumber = 1, episodeNumber = 1,
+                    title = "Key to the Salt Corridor",
+                    synopsis = "Eleanor arrives at Blackwater Manor as coastal fog cuts off the causeway.",
+                    runtimeMinutes = 48, thumbnailKey = "img_poster_chronicle",
+                    videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ElephantsDream.mp4",
+                    isVisible = true
+                )
+            )
+            "starblade-academy" -> listOf(
+                Episode(
+                    id = "s1e1", seasonNumber = 1, episodeNumber = 1,
+                    title = "Cafeteria Mech Duel",
+                    synopsis = "Renji accidentally activates the academy founder's heirloom blade during lunch.",
+                    runtimeMinutes = 24, thumbnailKey = "img_poster_odyssey",
+                    videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4",
+                    isVisible = true
+                ),
+                Episode(
+                    id = "s1e2", seasonNumber = 1, episodeNumber = 2,
+                    title = "Detention Orbit",
+                    synopsis = "Squad Zero has forty minutes to pass obstacle training without crashing.",
+                    runtimeMinutes = 24, thumbnailKey = "img_poster_odyssey",
+                    videoUrl = "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerFun.mp4",
                     isVisible = true
                 )
             )

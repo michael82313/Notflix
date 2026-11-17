@@ -144,6 +144,13 @@
         "isKidsFriendly": { "type": "boolean" },
         "trendingScore": { "type": "integer" },
         "popularityRank": { "type": "integer" },
+        "tags": { "type": "array" },
+        "keywords": { "type": "array" },
+        "isStaffPick": { "type": "boolean" },
+        "isAwardWinning": { "type": "boolean" },
+        "isComingSoon": { "type": "boolean" },
+        "expectedReleaseDate": { "type": "string" },
+        "leavingSoonAt": { "type": "string" },
         "createdAt": { "type": "string", "format": "date-time" },
         "updatedAt": { "type": "string", "format": "date-time" }
       },
@@ -253,6 +260,33 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "planId", "planName", "status", "isPermanentFree", "assignedBy", "startsAt", "createdAt", "updatedAt"]
+    },
+    "HomepageSettings": {
+      "title": "HomepageSettings",
+      "description": "Global admin homepage curation and genre settings.",
+      "type": "object",
+      "properties": {
+        "maxItemsPerRow": { "type": "integer" },
+        "maxBecauseYouWatchedRows": { "type": "integer" },
+        "enabledGenres": { "type": "array" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["maxItemsPerRow", "maxBecauseYouWatchedRows", "enabledGenres", "updatedAt"]
+    },
+    "HomepageRowRule": {
+      "title": "HomepageRowRule",
+      "description": "Admin-managed configuration rule for a homepage discovery row.",
+      "type": "object",
+      "properties": {
+        "rowKey": { "type": "string" },
+        "title": { "type": "string" },
+        "enabled": { "type": "boolean" },
+        "displayOrder": { "type": "integer" },
+        "maxItems": { "type": "integer" },
+        "personalized": { "type": "boolean" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["rowKey", "title", "enabled", "displayOrder", "maxItems", "personalized", "updatedAt"]
     }
   },
   "firestore": {
@@ -315,6 +349,14 @@
     "/userSubscriptions/{userId}": {
       "schema": { "$ref": "#/entities/UserSubscription" },
       "description": "User subscription status decoupled from core user and profile documents."
+    },
+    "/homepageConfig/{configId}": {
+      "schema": { "$ref": "#/entities/HomepageSettings" },
+      "description": "Admin homepage configuration document."
+    },
+    "/homepageConfig/{configId}/rows/{rowId}": {
+      "schema": { "$ref": "#/entities/HomepageRowRule" },
+      "description": "Ordered row rules for homepage layout."
     }
   }
 }

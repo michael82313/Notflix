@@ -196,10 +196,18 @@ data class CatalogItem(
     val isKidsFriendly: Boolean = false,
     val trendingScore: Int = 80,
     val popularityRank: Int = 10,
+    val tags: List<String> = emptyList(),
+    val keywords: List<String> = emptyList(),
+    val isStaffPick: Boolean = false,
+    val isAwardWinning: Boolean = false,
+    val isComingSoon: Boolean = false,
+    val expectedReleaseDate: String? = null,
+    val leavingSoonAt: String? = null,
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
     val isSeries: Boolean get() = mediaType == "series"
+    val isPlayableNow: Boolean get() = isVisible && !isComingSoon
 
     val preferredStreamUrl: String
         get() = when (videoSourceType.lowercase()) {
@@ -253,6 +261,21 @@ data class CatalogItem(
         put("isKidsFriendly", isKidsFriendly)
         put("trendingScore", trendingScore.coerceIn(0, 100000))
         put("popularityRank", popularityRank.coerceIn(0, 10000))
+        put("tags", tags.map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }.take(12))
+        put("keywords", keywords.map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }.take(16))
+        put("isStaffPick", isStaffPick)
+        put("isAwardWinning", isAwardWinning)
+        put("isComingSoon", isComingSoon)
+        if (!expectedReleaseDate.isNullOrBlank()) {
+            put("expectedReleaseDate", expectedReleaseDate.trim().take(60))
+        } else if (!isCreate) {
+            put("expectedReleaseDate", FieldValue.delete())
+        }
+        if (!leavingSoonAt.isNullOrBlank()) {
+            put("leavingSoonAt", leavingSoonAt.trim().take(60))
+        } else if (!isCreate) {
+            put("leavingSoonAt", FieldValue.delete())
+        }
         if (isCreate) {
             put("createdAt", FieldValue.serverTimestamp())
         }
@@ -359,6 +382,44 @@ data class Genre(
         if (isCreate) put("createdAt", FieldValue.serverTimestamp())
         put("updatedAt", FieldValue.serverTimestamp())
     }
+}
+
+@IgnoreExtraProperties
+data class HomepageSettings(
+    @DocumentId val id: String = "global",
+    val maxItemsPerRow: Int = 10,
+    val maxBecauseYouWatchedRows: Int = 4,
+    val enabledGenres: List<String> = emptyList(),
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+    fun toWriteMap(): Map<String, Any> = mapOf(
+        "maxItemsPerRow" to maxItemsPerRow.coerceIn(3, 30),
+        "maxBecauseYouWatchedRows" to maxBecauseYouWatchedRows.coerceIn(0, 10),
+        "enabledGenres" to enabledGenres.map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }.take(50),
+        "updatedAt" to FieldValue.serverTimestamp()
+    )
+}
+
+@IgnoreExtraProperties
+data class HomepageRowRule(
+    @DocumentId val id: String = "",
+    val rowKey: String = "",
+    val title: String = "",
+    val enabled: Boolean = true,
+    val displayOrder: Int = 0,
+    val maxItems: Int = 10,
+    val personalized: Boolean = false,
+    @ServerTimestamp val updatedAt: Timestamp? = null,
+) {
+    fun toWriteMap(): Map<String, Any> = mapOf(
+        "rowKey" to rowKey.trim().ifBlank { id.ifBlank { "row" } }.take(80),
+        "title" to title.trim().ifBlank { rowKey.ifBlank { "Row" } }.take(120),
+        "enabled" to enabled,
+        "displayOrder" to displayOrder.coerceIn(0, 200),
+        "maxItems" to maxItems.coerceIn(1, 30),
+        "personalized" to personalized,
+        "updatedAt" to FieldValue.serverTimestamp()
+    )
 }
 
 sealed interface UiState<out T> {

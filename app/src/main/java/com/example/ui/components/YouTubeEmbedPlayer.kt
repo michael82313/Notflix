@@ -4,12 +4,14 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -187,6 +189,25 @@ fun YouTubeEmbedPlayer(
                         Log.e("YouTubeEmbedPlayer", "WebView HTTP error $status for videoId=$videoId")
                         latestOnError("YouTube returned HTTP $status while loading the player.")
                     }
+                }
+
+                override fun onRenderProcessGone(
+                    view: WebView?,
+                    detail: RenderProcessGoneDetail?
+                ): Boolean {
+                    val crashed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        detail?.didCrash() == true
+                    } else {
+                        false
+                    }
+                    Log.e("YouTubeEmbedPlayer", "WebView render process gone (didCrash=$crashed) for videoId=$videoId")
+                    playerReady = true
+                    runCatching {
+                        (view?.parent as? ViewGroup)?.removeView(view)
+                        view?.destroy()
+                    }
+                    latestOnError("The embedded YouTube video renderer stopped unexpectedly. Tap Retry to reload playback.")
+                    return true
                 }
             }
 

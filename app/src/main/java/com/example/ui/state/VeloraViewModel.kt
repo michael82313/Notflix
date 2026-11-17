@@ -7,6 +7,8 @@ import com.example.data.model.CatalogItem
 import com.example.data.model.ContentRating
 import com.example.data.model.Episode
 import com.example.data.model.Genre
+import com.example.data.model.HomepageRowRule
+import com.example.data.model.HomepageSettings
 import com.example.data.model.PlanFeature
 import com.example.data.model.PlaybackProgress
 import com.example.data.model.SearchHistoryItem
@@ -254,17 +256,27 @@ class VeloraViewModel(
         }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
 
+    val homepageSettings: StateFlow<HomepageSettings> = catalogRepository.observeHomepageSettings()
+        .catch { emit(HomepageSettings()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), HomepageSettings())
+
+    val homepageRowRules: StateFlow<List<HomepageRowRule>> = catalogRepository.observeHomepageRowRules()
+        .catch { emit(HomeFeedRowBuilder.defaultRowRules()) }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), HomeFeedRowBuilder.defaultRowRules())
+
+    private val _seriesEpisodesCache = MutableStateFlow<Map<String, List<Episode>>>(emptyMap())
+    val seriesEpisodesById: StateFlow<Map<String, List<Episode>>> = _seriesEpisodesCache.asStateFlow()
+
     val continueWatching: StateFlow<List<ContinueWatchingEntry>> = combine(
         progressList,
-        catalog
-    ) { progress, items ->
-        val itemById = items.associateBy { it.id }
-        progress
-            .filter { !it.completed && it.positionMs > 0L }
-            .distinctBy { it.contentId }
-            .mapNotNull { entry ->
-                itemById[entry.contentId]?.let { ContinueWatchingEntry(entry, it) }
-            }
+        catalog,
+        seriesEpisodesById
+    ) { progress, items, episodesMap ->
+        CompletionTracker.analyzeWatchHistory(
+            catalog = items,
+            progressList = progress,
+            episodesBySeriesId = episodesMap
+        ).continueWatching
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
 
     val recommendations: StateFlow<List<CatalogItem>> = combine(
@@ -309,6 +321,26 @@ class VeloraViewModel(
 
     init {
         bootstrapSession()
+        observeWatchedSeriesEpisodes()
+    }
+
+    private fun observeWatchedSeriesEpisodes() {
+        viewModelScope.launch {
+            combine(progressList, rawCatalog) { progress, allItems ->
+                val watchedIds = progress.map { it.contentId }.toSet()
+                allItems.filter { it.isSeries && it.id in watchedIds }.map { it.id }
+            }.collect { watchedSeriesIds ->
+                val current = _seriesEpisodesCache.value
+                val missing = watchedSeriesIds.filter { it !in current }
+                if (missing.isNotEmpty()) {
+                    val loaded = mutableMapOf<String, List<Episode>>()
+                    missing.forEach { seriesId ->
+                        loaded[seriesId] = catalogRepository.loadVisibleEpisodesForSeries(seriesId)
+                    }
+                    _seriesEpisodesCache.value = _seriesEpisodesCache.value + loaded
+                }
+            }
+        }
     }
 
     private fun bootstrapSession() {
@@ -730,6 +762,33 @@ class VeloraViewModel(
             catalogRepository.deleteGenre(genreId)
                 .onSuccess { _statusMessage.value = "Genre removed" }
                 .onFailure { _statusMessage.value = it.localizedMessage ?: "Failed to delete genre" }
+        }
+    }
+
+    fun saveHomepageSettings(settings: HomepageSettings) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            catalogRepository.saveHomepageSettings(settings)
+                .onSuccess { _statusMessage.value = "Homepage global settings saved" }
+                .onFailure { _statusMessage.value = it.localizedMessage ?: "Failed to save homepage settings" }
+        }
+    }
+
+    fun saveHomepageRowRules(rules: List<HomepageRowRule>) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            catalogRepository.saveHomepageRowRules(rules)
+                .onSuccess { _statusMessage.value = "Homepage row layout saved" }
+                .onFailure { _statusMessage.value = it.localizedMessage ?: "Failed to save row layout" }
+        }
+    }
+
+    fun resetHomepageLayout() {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            catalogRepository.resetHomepageLayout()
+                .onSuccess { _statusMessage.value = "Homepage layout reset to defaults" }
+                .onFailure { _statusMessage.value = it.localizedMessage ?: "Failed to reset layout" }
         }
     }
 

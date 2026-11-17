@@ -272,13 +272,19 @@ fun PosterCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Surface(
-                    color = Color.Black.copy(alpha = 0.72f),
+                    color = if (item.isComingSoon) VeloraGold.copy(alpha = 0.9f) else Color.Black.copy(alpha = 0.72f),
                     shape = RoundedCornerShape(4.dp)
                 ) {
                     Text(
-                        text = if (item.isSeries) "SERIES" else "FILM",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = VeloraCoral,
+                        text = when {
+                            item.isComingSoon -> "COMING SOON"
+                            item.isSeries -> "SERIES"
+                            else -> "FILM"
+                        },
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = if (item.isComingSoon) FontWeight.Bold else FontWeight.Medium
+                        ),
+                        color = if (item.isComingSoon) Color.Black else VeloraCoral,
                         modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                     )
                 }
@@ -307,11 +313,17 @@ fun PosterCard(
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
+                val defaultSubtitle = if (item.isComingSoon) {
+                    "Expected ${item.expectedReleaseDate?.takeIf { it.isNotBlank() } ?: item.releaseYear.toString()}"
+                } else {
+                    "${item.releaseYear} • ${item.ageRating}"
+                }
                 Text(
-                    text = subtitleOverride ?: "${item.releaseYear} • ${item.ageRating}",
+                    text = subtitleOverride ?: defaultSubtitle,
                     style = MaterialTheme.typography.labelSmall,
-                    color = VeloraOnSurfaceMuted,
-                    maxLines = 1
+                    color = if (item.isComingSoon) VeloraGold else VeloraOnSurfaceMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
         }
@@ -413,7 +425,8 @@ fun QuickPreviewBottomSheet(
     onDismiss: () -> Unit,
     onPlay: () -> Unit,
     onToggleWatchlist: () -> Unit,
-    onMoreInfo: () -> Unit
+    onMoreInfo: () -> Unit,
+    onPlayTrailer: (() -> Unit)? = null
 ) {
     ModalBottomSheet(
         onDismissRequest = onDismiss,
@@ -453,11 +466,22 @@ fun QuickPreviewBottomSheet(
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Text(
-                            text = "${(item.trendingScore / 10).coerceIn(82, 99)}% Match",
-                            style = MaterialTheme.typography.labelLarge,
-                            color = VeloraMatchGreen
-                        )
+                        if (item.isComingSoon) {
+                            Surface(color = VeloraGold.copy(alpha = 0.2f), shape = RoundedCornerShape(4.dp)) {
+                                Text(
+                                    text = "COMING ${item.expectedReleaseDate?.takeIf { it.isNotBlank() } ?: item.releaseYear}",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = VeloraGold,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                        } else {
+                            Text(
+                                text = "${(item.trendingScore / 10).coerceIn(82, 99)}% Match",
+                                style = MaterialTheme.typography.labelLarge,
+                                color = VeloraMatchGreen
+                            )
+                        }
                         Text(
                             text = "${item.releaseYear}",
                             style = MaterialTheme.typography.bodySmall,
@@ -511,17 +535,49 @@ fun QuickPreviewBottomSheet(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Button(
-                    onClick = onPlay,
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(48.dp)
-                        .testTag("preview_play_button"),
-                    colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)
-                ) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text("Play")
+                if (item.isComingSoon) {
+                    if (!item.trailerUrl.isNullOrBlank() && onPlayTrailer != null) {
+                        Button(
+                            onClick = onPlayTrailer,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("preview_trailer_button"),
+                            colors = ButtonDefaults.buttonColors(containerColor = VeloraGold, contentColor = Color.Black)
+                        ) {
+                            Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Watch Trailer")
+                        }
+                    } else {
+                        Button(
+                            onClick = {},
+                            enabled = false,
+                            modifier = Modifier
+                                .weight(1f)
+                                .height(48.dp)
+                                .testTag("preview_coming_soon_button"),
+                            colors = ButtonDefaults.buttonColors(
+                                disabledContainerColor = VeloraSurfaceBright,
+                                disabledContentColor = VeloraGold
+                            )
+                        ) {
+                            Text("Coming Soon")
+                        }
+                    }
+                } else {
+                    Button(
+                        onClick = onPlay,
+                        modifier = Modifier
+                            .weight(1f)
+                            .height(48.dp)
+                            .testTag("preview_play_button"),
+                        colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text("Play")
+                    }
                 }
                 FilledTonalButton(
                     onClick = onToggleWatchlist,
@@ -552,7 +608,10 @@ fun QuickPreviewBottomSheet(
             ) {
                 Icon(Icons.Filled.Info, contentDescription = null, tint = VeloraGold)
                 Spacer(Modifier.width(8.dp))
-                Text("More Information & Episodes", color = VeloraOnBackground)
+                Text(
+                    text = if (item.isComingSoon) "Release Info & Details" else "More Information & Episodes",
+                    color = VeloraOnBackground
+                )
             }
         }
     }

@@ -336,6 +336,59 @@ class VeloraRepositoryRuleTest : FirestoreEmulatorTestBase() {
         assertTrue(observedUsers.any { it.userId == memberUid && it.role == "member" })
     }
 
+    @Test
+    fun admin_canManageHomepageSettingsAndRowRules_whileMemberWriteFailsWithPermissionDenied() = runBlocking {
+        signInVerifiedAdminUser()
+        val adminCatalogRepo = CatalogRepository(firestore, auth)
+
+        val settings = com.example.data.model.HomepageSettings(
+            maxItemsPerRow = 12,
+            maxBecauseYouWatchedRows = 5,
+            enabledGenres = listOf("Sci-Fi", "Horror", "Comedy")
+        )
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminCatalogRepo.saveHomepageSettings(settings).getOrThrow()
+        }
+
+        val customRules = com.example.ui.state.HomeFeedRowBuilder.defaultRowRules().take(4).mapIndexed { idx, r ->
+            if (r.rowKey == "popular_on_notflix") r.copy(title = "Top Picks Around the World", enabled = false, displayOrder = idx)
+            else r.copy(displayOrder = idx)
+        }
+        withTimeout(DEFAULT_TIMEOUT_MS) {
+            adminCatalogRepo.saveHomepageRowRules(customRules).getOrThrow()
+        }
+
+        val observedSettings = withTimeout(FLOW_TIMEOUT_MS) {
+            adminCatalogRepo.observeHomepageSettings().first { it.maxItemsPerRow == 12 && it.maxBecauseYouWatchedRows == 5 }
+        }
+        assertEquals(listOf("Sci-Fi", "Horror", "Comedy"), observedSettings.enabledGenres)
+
+        val observedRules = withTimeout(FLOW_TIMEOUT_MS) {
+            adminCatalogRepo.observeHomepageRowRules().first { rules ->
+                rules.any { it.rowKey == "popular_on_notflix" && !it.enabled }
+            }
+        }
+        assertTrue(observedRules.any { it.rowKey == "popular_on_notflix" && it.title == "Top Picks Around the World" })
+
+        // Regular member can read settings, but cannot modify settings or row rules
+        signInTestUser("member_hp_${UUID.randomUUID()}@velora.test")
+        val memberCatalogRepo = CatalogRepository(firestore, auth)
+
+        val memberRead = withTimeout(FLOW_TIMEOUT_MS) {
+            memberCatalogRepo.observeHomepageSettings().first { it.maxItemsPerRow == 12 }
+        }
+        assertEquals(5, memberRead.maxBecauseYouWatchedRows)
+
+        val memberWrite = withTimeout(DEFAULT_TIMEOUT_MS) {
+            memberCatalogRepo.saveHomepageSettings(settings.copy(maxItemsPerRow = 6))
+        }
+        assertTrue(memberWrite.isFailure)
+        assertEquals(
+            FirebaseFirestoreException.Code.PERMISSION_DENIED,
+            memberWrite.exceptionOrNull()?.unwrapFirestoreException()?.code
+        )
+    }
+
     private companion object {
         const val DEFAULT_TIMEOUT_MS = 8000L
         const val FLOW_TIMEOUT_MS = 3500L

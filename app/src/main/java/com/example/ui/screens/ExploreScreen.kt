@@ -351,7 +351,7 @@ fun ExploreScreen(
             onDismiss = { previewItem = null },
             onPlay = {
                 previewItem = null
-                onPlayItem(item)
+                if (item.isComingSoon) onOpenDetails(item) else onPlayItem(item)
             },
             onToggleWatchlist = { onToggleWatchlist(item) },
             onMoreInfo = {

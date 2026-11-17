@@ -68,6 +68,8 @@ import androidx.compose.ui.unit.dp
 import com.example.data.model.CatalogItem
 import com.example.data.model.Episode
 import com.example.data.model.Genre
+import com.example.data.model.HomepageRowRule
+import com.example.data.model.HomepageSettings
 import com.example.data.model.Season
 import com.example.data.model.SeasonDraft
 import com.example.data.model.SubscriptionPlan
@@ -75,6 +77,7 @@ import com.example.data.model.UserAccount
 import com.example.data.model.UserSubscription
 import com.example.data.repository.MediaAssetCategory
 import com.example.data.repository.MediaUploadState
+import com.example.ui.state.HomeFeedRowBuilder
 import com.example.ui.theme.VeloraBackground
 import com.example.ui.theme.VeloraCoral
 import com.example.ui.theme.VeloraCrimson
@@ -102,6 +105,8 @@ fun AdminDashboardScreen(
     loadedSeriesSeasons: List<SeasonDraft>,
     adminErrorMessage: String? = null,
     mediaUploadStates: Map<String, MediaUploadState> = emptyMap(),
+    homepageSettings: HomepageSettings = HomepageSettings(),
+    homepageRowRules: List<HomepageRowRule> = HomeFeedRowBuilder.defaultRowRules(),
     onUploadMedia: ((fieldKey: String, uri: Uri, category: MediaAssetCategory, contentFolderHint: String, onUploaded: (String) -> Unit) -> Unit)? = null,
     onClearUploadState: ((String?) -> Unit)? = null,
     onBack: () -> Unit,
@@ -121,6 +126,9 @@ fun AdminDashboardScreen(
     onAddEpisode: (contentId: String, seasonId: String, Episode) -> Unit,
     onSaveGenre: (Genre) -> Unit,
     onDeleteGenre: (String) -> Unit,
+    onSaveHomepageSettings: (HomepageSettings) -> Unit = {},
+    onSaveHomepageRowRules: (List<HomepageRowRule>) -> Unit = {},
+    onResetHomepageLayout: () -> Unit = {},
     onToggleUserAdmin: (UserAccount, Boolean) -> Unit
 ) {
     if (!isAdmin) {
@@ -146,6 +154,7 @@ fun AdminDashboardScreen(
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
     var editingItem by remember { mutableStateOf<CatalogItem?>(null) }
     var createMediaType by remember { mutableStateOf<String?>(null) }
+    var createAsComingSoon by remember { mutableStateOf(false) }
     var managingSeries by remember { mutableStateOf<CatalogItem?>(null) }
     var showAddGenreDialog by remember { mutableStateOf(false) }
 
@@ -221,11 +230,11 @@ fun AdminDashboardScreen(
             }
 
             TabRow(
-                selectedTabIndex = selectedTab.coerceIn(0, 4),
+                selectedTabIndex = selectedTab.coerceIn(0, 5),
                 containerColor = VeloraBackground,
                 contentColor = VeloraOnBackground,
                 indicator = { positions ->
-                    val activePos = positions.getOrNull(selectedTab.coerceIn(0, 4))
+                    val activePos = positions.getOrNull(selectedTab.coerceIn(0, 5))
                     if (activePos != null) {
                         TabRowDefaults.SecondaryIndicator(
                             modifier = Modifier.tabIndicatorOffset(activePos),
@@ -234,11 +243,12 @@ fun AdminDashboardScreen(
                     }
                 }
             ) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Stats") })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Catalog (${catalog.size})") })
-                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Genres") })
-                Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Users") })
-                Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Plans") })
+                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Stats", maxLines = 1) })
+                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Catalog", maxLines = 1) })
+                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Genres", maxLines = 1) })
+                Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Users", maxLines = 1) })
+                Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Plans", maxLines = 1) })
+                Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 }, text = { Text("Home", maxLines = 1) })
             }
 
             when (selectedTab) {
@@ -358,6 +368,32 @@ fun AdminDashboardScreen(
                                                         color = VeloraCoral,
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                     )
+                                                }
+                                                if (item.isComingSoon) {
+                                                    Surface(
+                                                        color = VeloraGold.copy(alpha = 0.2f),
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "SOON",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = VeloraGold,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                                if (item.isStaffPick) {
+                                                    Surface(
+                                                        color = VeloraMatchGreen.copy(alpha = 0.18f),
+                                                        shape = RoundedCornerShape(6.dp)
+                                                    ) {
+                                                        Text(
+                                                            text = "STAFF PICK",
+                                                            style = MaterialTheme.typography.labelSmall,
+                                                            color = VeloraMatchGreen,
+                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -514,6 +550,22 @@ fun AdminDashboardScreen(
                         onSyncSchemas = onSyncSubscriptionSchemas
                     )
                 }
+                5 -> {
+                    AdminHomepageTab(
+                        catalog = catalog,
+                        genres = genres,
+                        homepageSettings = homepageSettings,
+                        homepageRowRules = homepageRowRules,
+                        onSaveHomepageSettings = onSaveHomepageSettings,
+                        onSaveHomepageRowRules = onSaveHomepageRowRules,
+                        onResetHomepageLayout = onResetHomepageLayout,
+                        onSaveCatalogItem = onSaveCatalogItem,
+                        onAddComingSoonTitle = {
+                            createAsComingSoon = true
+                            createMediaType = "movie"
+                        }
+                    )
+                }
             }
         }
     }
@@ -523,6 +575,7 @@ fun AdminDashboardScreen(
         AdminCatalogEditorDialog(
             initial = activeEditing,
             initialMediaType = activeEditing?.mediaType ?: (createMediaType ?: "movie"),
+            initialIsComingSoon = activeEditing == null && createAsComingSoon,
             availableGenres = genres,
             loadedSeriesSeasons = loadedSeriesSeasons,
             isLoadingSeriesSeasons = isLoadingSeriesSeasons,
@@ -533,12 +586,14 @@ fun AdminDashboardScreen(
             onDismiss = {
                 onClearUploadState?.invoke(null)
                 createMediaType = null
+                createAsComingSoon = false
                 editingItem = null
             },
             onSaveMovie = { itemToSave ->
                 onSaveCatalogItem(itemToSave) {
                     onClearUploadState?.invoke(null)
                     createMediaType = null
+                    createAsComingSoon = false
                     editingItem = null
                 }
             },
@@ -546,6 +601,7 @@ fun AdminDashboardScreen(
                 onSaveSeriesWithSeasons(series, seasonDrafts, removedSeasonIds, removedEpisodeRefs) {
                     onClearUploadState?.invoke(null)
                     createMediaType = null
+                    createAsComingSoon = false
                     editingItem = null
                 }
             }

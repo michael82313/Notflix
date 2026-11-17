@@ -4,6 +4,8 @@ import android.util.Log
 import com.example.data.model.CatalogItem
 import com.example.data.model.Episode
 import com.example.data.model.Genre
+import com.example.data.model.HomepageRowRule
+import com.example.data.model.HomepageSettings
 import com.example.data.model.PlanFeature
 import com.example.data.model.Season
 import com.example.data.model.SubscriptionPlan
@@ -110,6 +112,13 @@ object FirestoreDocumentMapper {
         isKidsFriendly = data.bool("isKidsFriendly", false),
         trendingScore = data.int("trendingScore", 80),
         popularityRank = data.int("popularityRank", 10),
+        tags = data.strList("tags"),
+        keywords = data.strList("keywords"),
+        isStaffPick = data.bool("isStaffPick", false),
+        isAwardWinning = data.bool("isAwardWinning", false),
+        isComingSoon = data.bool("isComingSoon", false),
+        expectedReleaseDate = data.optStr("expectedReleaseDate"),
+        leavingSoonAt = data.optStr("leavingSoonAt"),
         createdAt = data.ts("createdAt"),
         updatedAt = data.ts("updatedAt")
     )
@@ -274,6 +283,42 @@ object FirestoreDocumentMapper {
         snapshot.documents.mapNotNull { doc ->
             runCatching { toUserSubscription(doc) }
                 .onFailure { Log.w(TAG, "Skipping malformed subscription document ${doc.id}", it) }
+                .getOrNull()
+        }
+
+    fun toHomepageSettings(doc: DocumentSnapshot): HomepageSettings? {
+        val data = doc.safeData() ?: return null
+        return toHomepageSettings(doc.id, data)
+    }
+
+    fun toHomepageSettings(id: String, data: Map<String, Any?>): HomepageSettings = HomepageSettings(
+        id = id.ifBlank { "global" },
+        maxItemsPerRow = data.int("maxItemsPerRow", 10).coerceIn(3, 30),
+        maxBecauseYouWatchedRows = data.int("maxBecauseYouWatchedRows", 4).coerceIn(0, 10),
+        enabledGenres = data.strList("enabledGenres"),
+        updatedAt = data.ts("updatedAt")
+    )
+
+    fun toHomepageRowRule(doc: DocumentSnapshot): HomepageRowRule? {
+        val data = doc.safeData() ?: return null
+        return toHomepageRowRule(doc.id, data)
+    }
+
+    fun toHomepageRowRule(id: String, data: Map<String, Any?>): HomepageRowRule = HomepageRowRule(
+        id = id,
+        rowKey = data.str("rowKey", id).ifBlank { id },
+        title = data.str("title", id),
+        enabled = data.bool("enabled", true),
+        displayOrder = data.int("displayOrder", 0).coerceAtLeast(0),
+        maxItems = data.int("maxItems", 10).coerceIn(1, 30),
+        personalized = data.bool("personalized", false),
+        updatedAt = data.ts("updatedAt")
+    )
+
+    fun toHomepageRowRules(snapshot: QuerySnapshot): List<HomepageRowRule> =
+        snapshot.documents.mapNotNull { doc ->
+            runCatching { toHomepageRowRule(doc) }
+                .onFailure { Log.w(TAG, "Skipping malformed homepage row rule ${doc.id}", it) }
                 .getOrNull()
         }
 

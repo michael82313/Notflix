@@ -108,6 +108,7 @@ private val AGE_RATINGS = listOf("G", "PG", "PG-13", "TV-G", "TV-PG", "TV-14", "
 fun AdminCatalogEditorDialog(
     initial: CatalogItem?,
     initialMediaType: String,
+    initialIsComingSoon: Boolean = false,
     availableGenres: List<Genre>,
     loadedSeriesSeasons: List<SeasonDraft>,
     isLoadingSeriesSeasons: Boolean,
@@ -181,6 +182,15 @@ fun AdminCatalogEditorDialog(
     var isFeatured by remember(initial?.id) { mutableStateOf(initial?.isFeatured ?: false) }
     var isVisible by remember(initial?.id) { mutableStateOf(initial?.isVisible ?: true) }
     var isKidsFriendly by remember(initial?.id) { mutableStateOf(initial?.isKidsFriendly ?: false) }
+    var isStaffPick by remember(initial?.id) { mutableStateOf(initial?.isStaffPick ?: false) }
+    var isAwardWinning by remember(initial?.id) { mutableStateOf(initial?.isAwardWinning ?: false) }
+    var isComingSoon by remember(initial?.id, initialIsComingSoon) {
+        mutableStateOf(initial?.isComingSoon ?: initialIsComingSoon)
+    }
+    var expectedReleaseDate by remember(initial?.id) { mutableStateOf(initial?.expectedReleaseDate ?: "") }
+    var leavingSoonAt by remember(initial?.id) { mutableStateOf(initial?.leavingSoonAt ?: "") }
+    var tagsText by remember(initial?.id) { mutableStateOf(initial?.tags?.joinToString(", ") ?: "") }
+    var keywordsText by remember(initial?.id) { mutableStateOf(initial?.keywords?.joinToString(", ") ?: "") }
 
     val seasonDrafts = remember(initial?.id) { mutableStateListOf<SeasonDraft>() }
     val removedSeasonIds = remember(initial?.id) { mutableSetOf<String>() }
@@ -217,11 +227,11 @@ fun AdminCatalogEditorDialog(
     val posterValidation = remember(posterUrl) { VideoSourceUtils.validateOptionalUrl(posterUrl, "Poster URL") }
     val backdropValidation = remember(backdropUrl) { VideoSourceUtils.validateOptionalUrl(backdropUrl, "Backdrop URL") }
     val trailerValidation = remember(trailerUrl) { VideoSourceUtils.validateTrailerUrl(trailerUrl) }
-    val videoSourceValidation = remember(videoUrl, videoSourceType, mediaType) {
+    val videoSourceValidation = remember(videoUrl, videoSourceType, mediaType, isComingSoon) {
         VideoSourceUtils.validateVideoSource(
             url = videoUrl,
             sourceType = videoSourceType,
-            required = mediaType == "movie"
+            required = mediaType == "movie" && !isComingSoon
         )
     }
 
@@ -275,7 +285,7 @@ fun AdminCatalogEditorDialog(
                 formError = videoSourceValidation.errorOrNull
                 return
             }
-            mediaType == "series" -> {
+            mediaType == "series" && !isComingSoon -> {
                 if (seasonDrafts.isEmpty()) {
                     formError = "Add at least one season to this TV show."
                     return
@@ -305,6 +315,8 @@ fun AdminCatalogEditorDialog(
             cleanedUrl
         } else null
         val cleanedProvider = providerName.trim().takeIf { it.isNotBlank() }
+        val parsedTags = tagsText.split(",").map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }
+        val parsedKeywords = keywordsText.split(",").map { it.trim() }.filter { it.isNotBlank() }.distinctBy { it.lowercase() }
         val itemToSave = (initial ?: CatalogItem()).copy(
             title = trimmedTitle,
             synopsis = trimmedSynopsis,
@@ -322,13 +334,25 @@ fun AdminCatalogEditorDialog(
             videoSourceType = videoSourceType.key,
             providerName = cleanedProvider,
             hlsUrl = hlsValue,
-            isFeatured = isFeatured,
+            isFeatured = if (isComingSoon) false else isFeatured,
             isVisible = isVisible,
-            isKidsFriendly = isKidsFriendly
+            isKidsFriendly = isKidsFriendly,
+            tags = parsedTags,
+            keywords = parsedKeywords,
+            isStaffPick = isStaffPick,
+            isAwardWinning = isAwardWinning,
+            isComingSoon = isComingSoon,
+            expectedReleaseDate = if (isComingSoon) expectedReleaseDate.trim().takeIf { it.isNotBlank() } else null,
+            leavingSoonAt = leavingSoonAt.trim().takeIf { it.isNotBlank() }
         )
 
         if (mediaType == "series") {
-            onSaveSeries(itemToSave, seasonDrafts.toList(), removedSeasonIds.toSet(), removedEpisodeRefs.toList())
+            val seasonsToPersist = if (isComingSoon) {
+                seasonDrafts.filter { it.episodes.isNotEmpty() }
+            } else {
+                seasonDrafts.toList()
+            }
+            onSaveSeries(itemToSave, seasonsToPersist, removedSeasonIds.toSet(), removedEpisodeRefs.toList())
         } else {
             onSaveMovie(itemToSave)
         }
@@ -601,6 +625,26 @@ fun AdminCatalogEditorDialog(
                             singleLine = true,
                             modifier = Modifier.fillMaxWidth()
                         )
+                        OutlinedTextField(
+                            value = tagsText,
+                            onValueChange = { tagsText = it },
+                            label = { Text("Discovery Tags (comma-separated)") },
+                            placeholder = { Text("e.g. Cyberpunk, Binge-Worthy, Superhero, Rom-Com") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("editor_tags_input")
+                        )
+                        OutlinedTextField(
+                            value = keywordsText,
+                            onValueChange = { keywordsText = it },
+                            label = { Text("Recommendation Keywords (comma-separated)") },
+                            placeholder = { Text("e.g. heist, time loop, space, haunted") },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("editor_keywords_input")
+                        )
                     }
                 }
 
@@ -760,9 +804,19 @@ fun AdminCatalogEditorDialog(
                     }
 
                     EditorSectionCard(
-                        title = if (mediaType == "series") "Series Preview / Fallback Video Source (Optional)" else "Video / Webpage Source*"
+                        title = when {
+                            isComingSoon -> "Video Source (Optional for Coming Soon)"
+                            mediaType == "series" -> "Series Preview / Fallback Video Source (Optional)"
+                            else -> "Video / Webpage Source*"
+                        }
                     ) {
-                        if (mediaType == "series") {
+                        if (isComingSoon) {
+                            Text(
+                                text = "Coming Soon titles are non-playable until release. You can leave the video URL blank and attach only a Trailer URL above.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = VeloraGold
+                            )
+                        } else if (mediaType == "series") {
                             Text(
                                 text = "Each TV episode below has its own video source. Optionally provide a series-level fallback URL here.",
                                 style = MaterialTheme.typography.bodySmall,
@@ -785,7 +839,7 @@ fun AdminCatalogEditorDialog(
                         OutlinedTextField(
                             value = videoUrl,
                             onValueChange = { videoUrl = it },
-                            label = { Text("Video / Webpage URL${if (mediaType == "movie") "*" else ""}") },
+                            label = { Text("Video / Webpage URL${if (mediaType == "movie" && !isComingSoon) "*" else ""}") },
                             placeholder = { Text(placeholderForSourceType(videoSourceType)) },
                             isError = videoUrl.isNotBlank() && !videoSourceValidation.isValid,
                             singleLine = true,
@@ -823,7 +877,7 @@ fun AdminCatalogEditorDialog(
                             url = videoUrl,
                             sourceType = videoSourceType,
                             customProviderName = providerName,
-                            required = mediaType == "movie"
+                            required = mediaType == "movie" && !isComingSoon
                         )
                     }
                 }
@@ -1060,6 +1114,66 @@ fun AdminCatalogEditorDialog(
                             }
                             Switch(checked = isKidsFriendly, onCheckedChange = { isKidsFriendly = it })
                         }
+                        HorizontalDivider(color = VeloraOutline)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Staff Pick", color = VeloraOnBackground, style = MaterialTheme.typography.bodyLarge)
+                                Text("Feature in the Staff Picks discovery row", color = VeloraOnSurfaceMuted, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Switch(checked = isStaffPick, onCheckedChange = { isStaffPick = it })
+                        }
+                        HorizontalDivider(color = VeloraOutline)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Award-Winning Title", color = VeloraOnBackground, style = MaterialTheme.typography.bodyLarge)
+                                Text("Highlight in the Award-Winning Movies shelf", color = VeloraOnSurfaceMuted, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Switch(checked = isAwardWinning, onCheckedChange = { isAwardWinning = it })
+                        }
+                        HorizontalDivider(color = VeloraOutline)
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text("Coming Soon (Upcoming Release)", color = VeloraGold, style = MaterialTheme.typography.bodyLarge)
+                                Text("Shows release info & trailer only; playback remains locked until release", color = VeloraOnSurfaceMuted, style = MaterialTheme.typography.bodySmall)
+                            }
+                            Switch(
+                                checked = isComingSoon,
+                                onCheckedChange = { isComingSoon = it },
+                                modifier = Modifier.testTag("editor_coming_soon_switch")
+                            )
+                        }
+                        if (isComingSoon) {
+                            OutlinedTextField(
+                                value = expectedReleaseDate,
+                                onValueChange = { expectedReleaseDate = it.take(60) },
+                                label = { Text("Expected Release Date") },
+                                placeholder = { Text("e.g. Jan 22, 2027") },
+                                singleLine = true,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .testTag("editor_expected_release_input")
+                            )
+                        }
+                        OutlinedTextField(
+                            value = leavingSoonAt,
+                            onValueChange = { leavingSoonAt = it.take(60) },
+                            label = { Text("Leaving Soon Note (Optional)") },
+                            placeholder = { Text("e.g. Leaves Nov 30") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
 

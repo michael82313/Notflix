@@ -631,3 +631,129 @@ test("Subscription plans: permanent Free plan cannot be disabled or deleted even
     })
   );
 });
+
+test("Catalog discovery metadata & Coming Soon items allowed for admins only", async () => {
+  const ts = pastTimestamp();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await db.collection("admins").doc(ADMIN_UID).set({
+      uid: ADMIN_UID,
+      email: "admin@velora.app",
+      grantedBy: "system",
+      createdAt: ts,
+    });
+  });
+
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID).firestore();
+
+  const comingSoonPayload = {
+    title: "Solstice 2099",
+    synopsis: "Upcoming sci-fi expedition to Europa.",
+    mediaType: "movie",
+    genres: ["Sci-Fi", "Adventure"],
+    releaseYear: 2027,
+    runtimeMinutes: 128,
+    ageRating: "PG-13",
+    director: "Elena Vance",
+    cast: ["Aria Chen", "Devon Brooks"],
+    posterKey: "img_hero_nebula",
+    backdropKey: "img_hero_nebula",
+    trailerUrl: "https://example.com/trailer.mp4",
+    videoUrl: "",
+    videoSourceType: "auto",
+    isFeatured: false,
+    isVisible: true,
+    isKidsFriendly: false,
+    trendingScore: 880,
+    popularityRank: 12,
+    tags: ["Recently Announced", "Space"],
+    keywords: ["europa", "orbit"],
+    isStaffPick: true,
+    isAwardWinning: false,
+    isComingSoon: true,
+    expectedReleaseDate: "Jan 22, 2027",
+    createdAt: ts,
+    updatedAt: ts,
+  };
+
+  await assertFails(aliceDb.collection("catalog").doc("solstice-2099").set(comingSoonPayload));
+  await assertSucceeds(adminDb.collection("catalog").doc("solstice-2099").set(comingSoonPayload));
+
+  // Admin can update leavingSoonAt without losing immutable createdAt
+  await assertSucceeds(
+    adminDb.collection("catalog").doc("solstice-2099").update({
+      isComingSoon: false,
+      leavingSoonAt: "Dec 31, 2027",
+      updatedAt: ts,
+    })
+  );
+
+  // Member can read visible Coming Soon metadata
+  await assertSucceeds(aliceDb.collection("catalog").where("isVisible", "==", true).get());
+});
+
+test("Homepage configuration & row rules: signed-in users read, only admins write or delete", async () => {
+  const ts = pastTimestamp();
+  await testEnv.withSecurityRulesDisabled(async (ctx) => {
+    const db = ctx.firestore();
+    await db.collection("admins").doc(ADMIN_UID).set({
+      uid: ADMIN_UID,
+      email: "admin@velora.app",
+      grantedBy: "system",
+      createdAt: ts,
+    });
+  });
+
+  const unauthDb = testEnv.unauthenticatedContext().firestore();
+  const aliceDb = testEnv.authenticatedContext(ALICE_UID).firestore();
+  const adminDb = testEnv.authenticatedContext(ADMIN_UID).firestore();
+
+  const settingsPayload = {
+    maxItemsPerRow: 12,
+    maxBecauseYouWatchedRows: 5,
+    enabledGenres: ["Sci-Fi", "Horror", "Anime", "Comedy"],
+    updatedAt: ts,
+  };
+  const rowPayload = {
+    rowKey: "because_you_watched",
+    title: "Because You Watched",
+    enabled: true,
+    displayOrder: 2,
+    maxItems: 10,
+    personalized: true,
+    updatedAt: ts,
+  };
+
+  // Unauthenticated reads fail
+  await assertFails(unauthDb.collection("homepageConfig").doc("global").get());
+  await assertFails(unauthDb.collection("homepageConfig").doc("global").collection("rows").get());
+
+  // Member writes fail
+  await assertFails(aliceDb.collection("homepageConfig").doc("global").set(settingsPayload));
+  await assertFails(
+    aliceDb.collection("homepageConfig").doc("global").collection("rows").doc("because_you_watched").set(rowPayload)
+  );
+
+  // Admin writes succeed
+  await assertSucceeds(adminDb.collection("homepageConfig").doc("global").set(settingsPayload));
+  await assertSucceeds(
+    adminDb.collection("homepageConfig").doc("global").collection("rows").doc("because_you_watched").set(rowPayload)
+  );
+
+  // Signed-in member can read settings & row rules, cannot delete
+  await assertSucceeds(aliceDb.collection("homepageConfig").doc("global").get());
+  await assertSucceeds(aliceDb.collection("homepageConfig").doc("global").collection("rows").get());
+  await assertFails(
+    aliceDb.collection("homepageConfig").doc("global").collection("rows").doc("because_you_watched").delete()
+  );
+
+  // Invalid row rule bounds fail even for admin
+  await assertFails(
+    adminDb.collection("homepageConfig").doc("global").collection("rows").doc("bad_row").set({
+      ...rowPayload,
+      maxItems: 99,
+    })
+  );
+});
+

@@ -211,6 +211,9 @@ private fun AuthenticatedVeloraApp(
     val mediaUploadStates by viewModel.mediaUploadStates.collectAsStateWithLifecycle()
     val isLoadingSeriesStructure by viewModel.isLoadingSeriesStructure.collectAsStateWithLifecycle()
     val editingSeriesSeasons by viewModel.editingSeriesSeasons.collectAsStateWithLifecycle()
+    val homepageSettings by viewModel.homepageSettings.collectAsStateWithLifecycle()
+    val homepageRowRules by viewModel.homepageRowRules.collectAsStateWithLifecycle()
+    val seriesEpisodesById by viewModel.seriesEpisodesById.collectAsStateWithLifecycle()
     val statusMessage by viewModel.statusMessage.collectAsStateWithLifecycle()
 
     val snackbarHostState = remember { SnackbarHostState() }
@@ -292,6 +295,8 @@ private fun AuthenticatedVeloraApp(
                         loadedSeriesSeasons = editingSeriesSeasons,
                         adminErrorMessage = (catalogState as? com.example.data.model.UiState.Error)?.message,
                         mediaUploadStates = mediaUploadStates,
+                        homepageSettings = homepageSettings,
+                        homepageRowRules = homepageRowRules,
                         onUploadMedia = { fieldKey, uri, category, folderHint, onUploaded ->
                             viewModel.uploadMediaFile(fieldKey, uri, category, folderHint) { url, _, _ ->
                                 onUploaded(url)
@@ -309,6 +314,9 @@ private fun AuthenticatedVeloraApp(
                         onAddEpisode = viewModel::addEpisode,
                         onSaveGenre = viewModel::saveGenre,
                         onDeleteGenre = viewModel::deleteGenre,
+                        onSaveHomepageSettings = viewModel::saveHomepageSettings,
+                        onSaveHomepageRowRules = viewModel::saveHomepageRowRules,
+                        onResetHomepageLayout = viewModel::resetHomepageLayout,
                         onToggleUserAdmin = viewModel::setUserAdminRole
                     )
                 }
@@ -476,6 +484,12 @@ private fun AuthenticatedVeloraApp(
                         unreadNotifications = notifications.count { !it.read },
                         isAdmin = isAdmin,
                         accountIdentifier = account?.email?.takeIf { it.isNotBlank() } ?: account?.phoneNumber,
+                        progressList = progressList,
+                        ratings = ratings,
+                        searchHistory = searchHistory,
+                        homepageSettings = homepageSettings,
+                        homepageRowRules = homepageRowRules,
+                        seriesEpisodesById = seriesEpisodesById,
                         onSelectCategory = viewModel::setHomeCategory,
                         onSelectGenre = viewModel::setHomeGenreFilter,
                         onSwitchProfileClick = viewModel::openProfileSwitcher,
@@ -488,15 +502,37 @@ private fun AuthenticatedVeloraApp(
                         },
                         onOpenDetails = { item -> navController.navigate(VeloraRoute.Details(item.id)) },
                         onPlayItem = { item, entry ->
-                            navController.navigate(
-                                VeloraRoute.Player(
-                                    contentId = item.id,
-                                    episodeId = entry?.progress?.episodeId,
-                                    seasonNumber = entry?.progress?.seasonNumber,
-                                    episodeNumber = entry?.progress?.episodeNumber,
-                                    isTrailer = false
+                            if (item.isComingSoon) {
+                                navController.navigate(VeloraRoute.Details(item.id))
+                            } else {
+                                navController.navigate(
+                                    VeloraRoute.Player(
+                                        contentId = item.id,
+                                        episodeId = entry?.progress?.episodeId,
+                                        seasonNumber = entry?.progress?.seasonNumber,
+                                        episodeNumber = entry?.progress?.episodeNumber,
+                                        isTrailer = false
+                                    )
                                 )
-                            )
+                            }
+                        },
+                        onPlayNextEpisode = { item, episode ->
+                            if (item.isComingSoon) {
+                                navController.navigate(VeloraRoute.Details(item.id))
+                            } else {
+                                navController.navigate(
+                                    VeloraRoute.Player(
+                                        contentId = item.id,
+                                        episodeId = episode.id,
+                                        seasonNumber = episode.seasonNumber,
+                                        episodeNumber = episode.episodeNumber,
+                                        isTrailer = false
+                                    )
+                                )
+                            }
+                        },
+                        onPlayTrailer = { item ->
+                            navController.navigate(VeloraRoute.Player(contentId = item.id, isTrailer = true))
                         },
                         onToggleWatchlist = viewModel::toggleWatchlist
                     )
@@ -520,7 +556,13 @@ private fun AuthenticatedVeloraApp(
                         onSortChange = viewModel::setExploreSort,
                         onResetFilters = viewModel::resetExploreFilters,
                         onOpenDetails = { item -> navController.navigate(VeloraRoute.Details(item.id)) },
-                        onPlayItem = { item -> navController.navigate(VeloraRoute.Player(contentId = item.id)) },
+                        onPlayItem = { item ->
+                            if (item.isComingSoon) {
+                                navController.navigate(VeloraRoute.Details(item.id))
+                            } else {
+                                navController.navigate(VeloraRoute.Player(contentId = item.id))
+                            }
+                        },
                         onToggleWatchlist = viewModel::toggleWatchlist
                     )
                 }
@@ -534,14 +576,18 @@ private fun AuthenticatedVeloraApp(
                         notifications = notifications,
                         onOpenDetails = { item -> navController.navigate(VeloraRoute.Details(item.id)) },
                         onPlayProgress = { item, entry ->
-                            navController.navigate(
-                                VeloraRoute.Player(
-                                    contentId = item.id,
-                                    episodeId = entry.episodeId,
-                                    seasonNumber = entry.seasonNumber,
-                                    episodeNumber = entry.episodeNumber
+                            if (item.isComingSoon) {
+                                navController.navigate(VeloraRoute.Details(item.id))
+                            } else {
+                                navController.navigate(
+                                    VeloraRoute.Player(
+                                        contentId = item.id,
+                                        episodeId = entry.episodeId,
+                                        seasonNumber = entry.seasonNumber,
+                                        episodeNumber = entry.episodeNumber
+                                    )
                                 )
-                            )
+                            }
                         },
                         onToggleWatchlist = viewModel::toggleWatchlist,
                         onDeleteHistoryEntry = viewModel::deleteHistoryEntry,
@@ -577,6 +623,8 @@ private fun AuthenticatedVeloraApp(
                         loadedSeriesSeasons = editingSeriesSeasons,
                         adminErrorMessage = (catalogState as? com.example.data.model.UiState.Error)?.message,
                         mediaUploadStates = mediaUploadStates,
+                        homepageSettings = homepageSettings,
+                        homepageRowRules = homepageRowRules,
                         onUploadMedia = { fieldKey, uri, category, folderHint, onUploaded ->
                             viewModel.uploadMediaFile(fieldKey, uri, category, folderHint) { url, _, _ ->
                                 onUploaded(url)
@@ -598,6 +646,9 @@ private fun AuthenticatedVeloraApp(
                         onAddEpisode = viewModel::addEpisode,
                         onSaveGenre = viewModel::saveGenre,
                         onDeleteGenre = viewModel::deleteGenre,
+                        onSaveHomepageSettings = viewModel::saveHomepageSettings,
+                        onSaveHomepageRowRules = viewModel::saveHomepageRowRules,
+                        onResetHomepageLayout = viewModel::resetHomepageLayout,
                         onToggleUserAdmin = viewModel::setUserAdminRole
                     )
                 }
@@ -653,7 +704,7 @@ private fun AuthenticatedVeloraApp(
                 composable<VeloraRoute.Player> { entry ->
                     val route = entry.toRoute<VeloraRoute.Player>()
                     val item = rawCatalog.firstOrNull { it.id == route.contentId }
-                    if (item != null) {
+                    if (item != null && (route.isTrailer || !item.isComingSoon)) {
                         val seasonNum = route.seasonNumber ?: 1
                         val episodesFlow = remember(item.id, seasonNum) {
                             viewModel.observeEpisodes(item.id, "season-$seasonNum", seasonNum)

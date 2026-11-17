@@ -4,10 +4,12 @@ import android.annotation.SuppressLint
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.os.Build
 import android.util.Log
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
+import android.webkit.RenderProcessGoneDetail
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -144,6 +146,27 @@ fun HostedEmbedWebPlayer(
                             latestOnError("$reason Tap 'Open Website' to open this source directly.")
                         }
                     }
+                }
+
+                override fun onRenderProcessGone(
+                    view: WebView?,
+                    detail: RenderProcessGoneDetail?
+                ): Boolean {
+                    val crashed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                        detail?.didCrash() == true
+                    } else {
+                        false
+                    }
+                    Log.e("HostedEmbedWebPlayer", "WebView render process gone (didCrash=$crashed) for $providerName ($embedUrl)")
+                    runCatching {
+                        customViewCallback?.onCustomViewHidden()
+                        customFullscreenView = null
+                        customViewCallback = null
+                        (view?.parent as? ViewGroup)?.removeView(view)
+                        view?.destroy()
+                    }
+                    latestOnError("$providerName embedded renderer stopped unexpectedly. Tap Retry or Open Website.")
+                    return true
                 }
             }
 

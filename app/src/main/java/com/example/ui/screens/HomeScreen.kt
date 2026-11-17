@@ -66,7 +66,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.example.data.model.CatalogItem
+import com.example.data.model.ContentRating
+import com.example.data.model.Episode
 import com.example.data.model.Genre
+import com.example.data.model.HomepageRowRule
+import com.example.data.model.HomepageSettings
+import com.example.data.model.PlaybackProgress
+import com.example.data.model.SearchHistoryItem
 import com.example.data.model.UiState
 import com.example.data.model.UserProfile
 import com.example.ui.components.CatalogImage
@@ -77,6 +83,8 @@ import com.example.ui.components.TopTenPosterCard
 import com.example.ui.components.VeloraLogo
 import com.example.ui.state.ContinueWatchingEntry
 import com.example.ui.state.HomeCategoryFilter
+import com.example.ui.state.HomeFeedRowBuilder
+import com.example.ui.state.HomeFeedRowType
 import com.example.ui.theme.VeloraBackground
 import com.example.ui.theme.VeloraCoral
 import com.example.ui.theme.VeloraCrimson
@@ -104,6 +112,12 @@ fun HomeScreen(
     unreadNotifications: Int,
     isAdmin: Boolean = false,
     accountIdentifier: String? = null,
+    progressList: List<PlaybackProgress> = emptyList(),
+    ratings: List<ContentRating> = emptyList(),
+    searchHistory: List<SearchHistoryItem> = emptyList(),
+    homepageSettings: HomepageSettings = HomepageSettings(),
+    homepageRowRules: List<HomepageRowRule> = HomeFeedRowBuilder.defaultRowRules(),
+    seriesEpisodesById: Map<String, List<Episode>> = emptyMap(),
     onSelectCategory: (HomeCategoryFilter) -> Unit,
     onSelectGenre: (String?) -> Unit,
     onSwitchProfileClick: () -> Unit,
@@ -113,12 +127,21 @@ fun HomeScreen(
     onNotificationsClick: () -> Unit,
     onOpenDetails: (CatalogItem) -> Unit,
     onPlayItem: (CatalogItem, ContinueWatchingEntry?) -> Unit,
+    onPlayNextEpisode: (CatalogItem, Episode) -> Unit = { item, _ -> onPlayItem(item, null) },
+    onPlayTrailer: (CatalogItem) -> Unit = { onOpenDetails(it) },
     onToggleWatchlist: (CatalogItem) -> Unit
 ) {
     var previewItem by remember { mutableStateOf<CatalogItem?>(null) }
     var heroMuted by remember { mutableStateOf(true) }
     var heroIndex by remember { mutableIntStateOf(0) }
     var showAccountMenu by remember { mutableStateOf(false) }
+
+    val safeProfileName = remember(activeProfile?.name) {
+        activeProfile?.name
+            ?.trim()
+            ?.takeIf { it.isNotBlank() && !it.contains('@') }
+            ?: "Viewer"
+    }
 
     val filteredCatalog = remember(catalog, selectedCategory, selectedGenre) {
         catalog.filter { item ->
@@ -135,9 +158,46 @@ fun HomeScreen(
     }
 
     val featuredItems = remember(filteredCatalog) {
-        filteredCatalog.filter { it.isFeatured }.ifEmpty { filteredCatalog.take(3) }
+        val playable = filteredCatalog.filter { it.isPlayableNow }
+        playable.filter { it.isFeatured }.ifEmpty { playable.take(3) }
     }
     val heroItem = featuredItems.getOrNull(heroIndex % featuredItems.size.coerceAtLeast(1))
+
+    val feedRows = remember(
+        filteredCatalog,
+        catalog,
+        recommendations,
+        continueWatching,
+        watchlistIds,
+        progressList,
+        ratings,
+        searchHistory,
+        genres,
+        activeProfile,
+        selectedCategory,
+        selectedGenre,
+        homepageSettings,
+        homepageRowRules,
+        seriesEpisodesById
+    ) {
+        HomeFeedRowBuilder.buildRows(
+            filteredCatalog = filteredCatalog,
+            fullVisibleCatalog = catalog,
+            recommendations = recommendations,
+            continueWatching = continueWatching,
+            watchlistIds = watchlistIds,
+            progressList = progressList,
+            ratings = ratings,
+            searchHistory = searchHistory,
+            genres = genres,
+            activeProfile = activeProfile,
+            selectedCategory = selectedCategory,
+            selectedGenre = selectedGenre,
+            homepageSettings = homepageSettings,
+            homepageRowRules = homepageRowRules,
+            seriesEpisodesById = seriesEpisodesById
+        )
+    }
 
     Box(
         modifier = Modifier
@@ -381,9 +441,31 @@ fun HomeScreen(
                                     }
                                 }
 
+                                // Personalized Welcome Message (Active Profile Name Only)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = if (activeProfile?.isKids == true) {
+                                            "Kids Spotlight for $safeProfileName"
+                                        } else {
+                                            "Welcome back, $safeProfileName"
+                                        },
+                                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.SemiBold),
+                                        color = VeloraOnBackground.copy(alpha = 0.92f),
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.testTag("home_welcome_message")
+                                    )
+                                }
+
                                 // Category Filter Chips
                                 LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                                    contentPadding = PaddingValues(horizontal = 16.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     items(HomeCategoryFilter.entries) { cat ->
@@ -583,169 +665,130 @@ fun HomeScreen(
                         }
                     }
 
-                    // Continue Watching
-                    if (continueWatching.isNotEmpty()) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                                SectionHeader("Continue Watching", subtitle = "Pick up right where you left off")
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                                ) {
-                                    items(continueWatching, key = { it.progress.id.ifBlank { it.catalogItem.id } }) { entry ->
-                                        val epTag = if (entry.progress.seasonNumber != null && entry.progress.episodeNumber != null) {
-                                            "S${entry.progress.seasonNumber}:E${entry.progress.episodeNumber}"
-                                        } else {
-                                            val minsLeft = ((entry.progress.durationMs - entry.progress.positionMs) / 60000L).coerceAtLeast(1L)
-                                            "${minsLeft}m left"
+                    // Dynamic Personalized & Category Feed Rows
+                    feedRows.forEach { row ->
+                        item(key = "home_row_${row.id}") {
+                            when (row.type) {
+                                HomeFeedRowType.CONTINUE_WATCHING -> {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.testTag("home_row_${row.id}")
+                                    ) {
+                                        SectionHeader(row.title, subtitle = row.subtitle)
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = 16.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            itemsIndexed(
+                                                row.continueEntries,
+                                                key = { idx, entry ->
+                                                    "cw_${entry.progress.id.ifBlank { entry.catalogItem.id }}_$idx"
+                                                }
+                                            ) { _, entry ->
+                                                val epTag = if (entry.progress.seasonNumber != null && entry.progress.episodeNumber != null) {
+                                                    "S${entry.progress.seasonNumber}:E${entry.progress.episodeNumber}"
+                                                } else {
+                                                    val minsLeft = ((entry.progress.durationMs - entry.progress.positionMs) / 60000L).coerceAtLeast(1L)
+                                                    "${minsLeft}m left"
+                                                }
+                                                PosterCard(
+                                                    item = entry.catalogItem,
+                                                    progressFraction = entry.progress.progressFraction,
+                                                    subtitleOverride = epTag,
+                                                    onClick = { onPlayItem(entry.catalogItem, entry) },
+                                                    onQuickPreview = { previewItem = entry.catalogItem }
+                                                )
+                                            }
                                         }
-                                        PosterCard(
-                                            item = entry.catalogItem,
-                                            progressFraction = entry.progress.progressFraction,
-                                            subtitleOverride = epTag,
-                                            onClick = { onPlayItem(entry.catalogItem, entry) },
-                                            onQuickPreview = { previewItem = entry.catalogItem }
-                                        )
                                     }
                                 }
-                            }
-                        }
-                    }
-
-                    // Trending Now
-                    val trending = filteredCatalog.sortedByDescending { it.trendingScore }
-                    if (trending.isNotEmpty()) {
-                        item {
-                            CatalogCarouselRow(
-                                title = "Trending Now",
-                                items = trending,
-                                onCardClick = onOpenDetails,
-                                onQuickPreview = { previewItem = it }
-                            )
-                        }
-                    }
-
-                    // Recommended For You
-                    if (recommendations.isNotEmpty()) {
-                        item {
-                            CatalogCarouselRow(
-                                title = "Recommended For You",
-                                subtitle = "Personalized from your watch history & favorite genres",
-                                items = recommendations,
-                                onCardClick = onOpenDetails,
-                                onQuickPreview = { previewItem = it }
-                            )
-                        }
-                    }
-
-                    // Top 10 Movies
-                    val topMovies = catalog.filter { it.mediaType == "movie" }.sortedBy { it.popularityRank }.take(10)
-                    if (topMovies.isNotEmpty() && selectedCategory != HomeCategoryFilter.SERIES) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SectionHeader("Top 10 Movies on Notflix")
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    itemsIndexed(topMovies, key = { _, item -> "top_m_${item.id}" }) { index, item ->
-                                        TopTenPosterCard(
-                                            rank = index + 1,
-                                            item = item,
-                                            onClick = { onOpenDetails(item) }
-                                        )
+                                HomeFeedRowType.NEXT_EPISODES -> {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.testTag("home_row_${row.id}")
+                                    ) {
+                                        SectionHeader(row.title, subtitle = row.subtitle)
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = 16.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            itemsIndexed(
+                                                row.nextEpisodeEntries,
+                                                key = { idx, entry ->
+                                                    "next_${entry.catalogItem.id}_${entry.nextEpisode.id}_$idx"
+                                                }
+                                            ) { _, entry ->
+                                                PosterCard(
+                                                    item = entry.catalogItem,
+                                                    subtitleOverride = "S${entry.nextEpisode.seasonNumber}:E${entry.nextEpisode.episodeNumber} • Up Next",
+                                                    onClick = { onPlayNextEpisode(entry.catalogItem, entry.nextEpisode) },
+                                                    onQuickPreview = { previewItem = entry.catalogItem }
+                                                )
+                                            }
+                                        }
                                     }
                                 }
-                            }
-                        }
-                    }
-
-                    // Top 10 TV Shows
-                    val topSeries = catalog.filter { it.mediaType == "series" }.sortedBy { it.popularityRank }.take(10)
-                    if (topSeries.isNotEmpty() && selectedCategory != HomeCategoryFilter.MOVIES) {
-                        item {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                SectionHeader("Top 10 TV Shows on Notflix")
-                                LazyRow(
-                                    contentPadding = PaddingValues(horizontal = 16.dp),
-                                    horizontalArrangement = Arrangement.spacedBy(10.dp)
-                                ) {
-                                    itemsIndexed(topSeries, key = { _, item -> "top_s_${item.id}" }) { index, item ->
-                                        TopTenPosterCard(
-                                            rank = index + 1,
-                                            item = item,
-                                            onClick = { onOpenDetails(item) }
-                                        )
+                                HomeFeedRowType.TOP_TEN -> {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.testTag("home_row_${row.id}")
+                                    ) {
+                                        SectionHeader(row.title, subtitle = row.subtitle)
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = 16.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                                        ) {
+                                            itemsIndexed(
+                                                row.items,
+                                                key = { idx, item -> "${row.id}_${item.id}_$idx" }
+                                            ) { index, item ->
+                                                TopTenPosterCard(
+                                                    rank = index + 1,
+                                                    item = item,
+                                                    onClick = { onOpenDetails(item) }
+                                                )
+                                            }
+                                        }
                                     }
                                 }
-                            }
-                        }
-                    }
-
-                    // My List Row
-                    val myListItems = catalog.filter { it.id in watchlistIds }
-                    if (myListItems.isNotEmpty()) {
-                        item {
-                            CatalogCarouselRow(
-                                title = "My List",
-                                items = myListItems,
-                                onCardClick = onOpenDetails,
-                                onQuickPreview = { previewItem = it }
-                            )
-                        }
-                    }
-
-                    // Popular Movies & TV Shows + Recently Added
-                    val popularMovies = filteredCatalog.filter { it.mediaType == "movie" }
-                    if (popularMovies.isNotEmpty()) {
-                        item {
-                            CatalogCarouselRow(
-                                title = "Popular Movies",
-                                items = popularMovies,
-                                onCardClick = onOpenDetails,
-                                onQuickPreview = { previewItem = it }
-                            )
-                        }
-                    }
-
-                    val popularSeries = filteredCatalog.filter { it.mediaType == "series" }
-                    if (popularSeries.isNotEmpty()) {
-                        item {
-                            CatalogCarouselRow(
-                                title = "Popular TV Shows",
-                                items = popularSeries,
-                                onCardClick = onOpenDetails,
-                                onQuickPreview = { previewItem = it }
-                            )
-                        }
-                    }
-
-                    val recentlyAdded = filteredCatalog.sortedByDescending { it.releaseYear }
-                    if (recentlyAdded.isNotEmpty()) {
-                        item {
-                            CatalogCarouselRow(
-                                title = "Recently Added",
-                                items = recentlyAdded,
-                                onCardClick = onOpenDetails,
-                                onQuickPreview = { previewItem = it }
-                            )
-                        }
-                    }
-
-                    // Genre-based rows
-                    val genreBuckets = listOf("Sci-Fi", "Thriller", "Fantasy", "Animation", "Drama")
-                    genreBuckets.forEach { genreName ->
-                        val matching = filteredCatalog.filter { item ->
-                            item.genres.any { it.equals(genreName, ignoreCase = true) }
-                        }
-                        if (matching.isNotEmpty()) {
-                            item(key = "genre_row_$genreName") {
-                                CatalogCarouselRow(
-                                    title = "$genreName Picks",
-                                    items = matching,
-                                    onCardClick = onOpenDetails,
-                                    onQuickPreview = { previewItem = it }
-                                )
+                                HomeFeedRowType.COMING_SOON -> {
+                                    Column(
+                                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                                        modifier = Modifier.testTag("home_row_${row.id}")
+                                    ) {
+                                        SectionHeader(row.title, subtitle = row.subtitle)
+                                        LazyRow(
+                                            contentPadding = PaddingValues(horizontal = 16.dp),
+                                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                        ) {
+                                            itemsIndexed(
+                                                row.items,
+                                                key = { idx, item -> "${row.id}_${item.id}_$idx" }
+                                            ) { _, item ->
+                                                val dateLabel = item.expectedReleaseDate?.takeIf { it.isNotBlank() }
+                                                    ?: item.releaseYear.toString()
+                                                PosterCard(
+                                                    item = item,
+                                                    subtitleOverride = "Expected $dateLabel",
+                                                    onClick = { onOpenDetails(item) },
+                                                    onQuickPreview = { previewItem = item }
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                                HomeFeedRowType.STANDARD_CAROUSEL -> {
+                                    CatalogCarouselRow(
+                                        rowId = row.id,
+                                        title = row.title,
+                                        subtitle = row.subtitle,
+                                        items = row.items,
+                                        subtitleBadge = row.badgeTag,
+                                        onCardClick = onOpenDetails,
+                                        onQuickPreview = { previewItem = it },
+                                        modifier = Modifier.testTag("home_row_${row.id}")
+                                    )
+                                }
                             }
                         }
                     }
@@ -761,9 +804,19 @@ fun HomeScreen(
             onDismiss = { previewItem = null },
             onPlay = {
                 previewItem = null
-                val entry = continueWatching.firstOrNull { it.catalogItem.id == item.id }
-                onPlayItem(item, entry)
+                if (item.isComingSoon) {
+                    onOpenDetails(item)
+                } else {
+                    val entry = continueWatching.firstOrNull { it.catalogItem.id == item.id }
+                    onPlayItem(item, entry)
+                }
             },
+            onPlayTrailer = if (!item.trailerUrl.isNullOrBlank()) {
+                {
+                    previewItem = null
+                    onPlayTrailer(item)
+                }
+            } else null,
             onToggleWatchlist = { onToggleWatchlist(item) },
             onMoreInfo = {
                 previewItem = null
@@ -793,21 +846,28 @@ private fun SectionHeader(title: String, subtitle: String? = null) {
 
 @Composable
 private fun CatalogCarouselRow(
+    rowId: String,
     title: String,
     items: List<CatalogItem>,
     onCardClick: (CatalogItem) -> Unit,
     onQuickPreview: (CatalogItem) -> Unit,
-    subtitle: String? = null
+    modifier: Modifier = Modifier,
+    subtitle: String? = null,
+    subtitleBadge: String? = null
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+    ) {
         SectionHeader(title, subtitle)
         LazyRow(
             contentPadding = PaddingValues(horizontal = 16.dp),
             horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            items(items, key = { "${title}_${it.id}" }) { item ->
+            itemsIndexed(items, key = { idx, item -> "${rowId}_${item.id}_$idx" }) { _, item ->
                 PosterCard(
                     item = item,
+                    subtitleOverride = subtitleBadge?.let { "$it • ${item.releaseYear}" },
                     onClick = { onCardClick(item) },
                     onQuickPreview = { onQuickPreview(item) }
                 )

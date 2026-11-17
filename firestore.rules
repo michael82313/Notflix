@@ -149,6 +149,13 @@ service cloud.firestore {
              data.isKidsFriendly is bool &&
              data.trendingScore is int && data.trendingScore >= 0 && data.trendingScore <= 100000 &&
              data.popularityRank is int && data.popularityRank >= 0 && data.popularityRank <= 10000 &&
+             (!('tags' in data) || (data.tags is list && data.tags.size() <= 12 && (data.tags.size() == 0 || data.tags[0] is string))) &&
+             (!('keywords' in data) || (data.keywords is list && data.keywords.size() <= 16 && (data.keywords.size() == 0 || data.keywords[0] is string))) &&
+             (!('isStaffPick' in data) || data.isStaffPick is bool) &&
+             (!('isAwardWinning' in data) || data.isAwardWinning is bool) &&
+             (!('isComingSoon' in data) || data.isComingSoon is bool) &&
+             (!('expectedReleaseDate' in data) || data.expectedReleaseDate == null || (data.expectedReleaseDate is string && data.expectedReleaseDate.size() <= 60)) &&
+             (!('leavingSoonAt' in data) || data.leavingSoonAt == null || (data.leavingSoonAt is string && data.leavingSoonAt.size() <= 60)) &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
     }
@@ -226,6 +233,24 @@ service cloud.firestore {
              isValidTimestamp(data.startsAt) &&
              (!('expiresAt' in data) || data.expiresAt == null || data.expiresAt is timestamp) &&
              isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidHomepageSettings(data) {
+      return data.maxItemsPerRow is int && data.maxItemsPerRow >= 3 && data.maxItemsPerRow <= 30 &&
+             data.maxBecauseYouWatchedRows is int && data.maxBecauseYouWatchedRows >= 0 && data.maxBecauseYouWatchedRows <= 10 &&
+             data.enabledGenres is list && data.enabledGenres.size() <= 50 &&
+             (data.enabledGenres.size() == 0 || data.enabledGenres[0] is string) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidHomepageRowRule(data) {
+      return data.rowKey is string && data.rowKey.size() >= 1 && data.rowKey.size() <= 80 &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 120 &&
+             data.enabled is bool &&
+             data.displayOrder is int && data.displayOrder >= 0 && data.displayOrder <= 200 &&
+             data.maxItems is int && data.maxItems >= 1 && data.maxItems <= 30 &&
+             data.personalized is bool &&
              isValidTimestamp(data.updatedAt);
     }
 
@@ -395,14 +420,14 @@ service cloud.firestore {
       allow create: if isValidId(contentId) &&
                        isAdmin() &&
                        incoming().keys().hasAll(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'backdropKey', 'videoUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'videoSourceType', 'providerName', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'videoSourceType', 'providerName', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'tags', 'keywords', 'isStaffPick', 'isAwardWinning', 'isComingSoon', 'expectedReleaseDate', 'leavingSoonAt', 'createdAt', 'updatedAt']) &&
                        isValidCatalogItem(incoming());
 
       allow update: if isValidId(contentId) &&
                        isAdmin() &&
                        isValidCatalogItem(incoming()) &&
                        incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'videoSourceType', 'providerName', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'updatedAt']);
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'videoSourceType', 'providerName', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'tags', 'keywords', 'isStaffPick', 'isAwardWinning', 'isComingSoon', 'expectedReleaseDate', 'leavingSoonAt', 'updatedAt']);
 
       allow delete: if isValidId(contentId) && isAdmin();
 
@@ -532,6 +557,30 @@ service cloud.firestore {
                        incoming().diff(existing()).affectedKeys().hasOnly(['planId', 'planName', 'status', 'isPermanentFree', 'assignedBy', 'expiresAt', 'updatedAt']);
 
       allow delete: if false;
+    }
+
+    match /homepageConfig/{configId} {
+      allow get, list: if isValidId(configId) && isSignedIn();
+
+      allow create, update: if isValidId(configId) &&
+                               isAdmin() &&
+                               incoming().keys().hasAll(['maxItemsPerRow', 'maxBecauseYouWatchedRows', 'enabledGenres', 'updatedAt']) &&
+                               incoming().keys().hasOnly(['maxItemsPerRow', 'maxBecauseYouWatchedRows', 'enabledGenres', 'updatedAt']) &&
+                               isValidHomepageSettings(incoming());
+
+      allow delete: if isValidId(configId) && isAdmin();
+
+      match /rows/{rowId} {
+        allow get, list: if isValidId(configId) && isValidId(rowId) && isSignedIn();
+
+        allow create, update: if isValidId(configId) && isValidId(rowId) &&
+                                 isAdmin() &&
+                                 incoming().keys().hasAll(['rowKey', 'title', 'enabled', 'displayOrder', 'maxItems', 'personalized', 'updatedAt']) &&
+                                 incoming().keys().hasOnly(['rowKey', 'title', 'enabled', 'displayOrder', 'maxItems', 'personalized', 'updatedAt']) &&
+                                 isValidHomepageRowRule(incoming());
+
+        allow delete: if isValidId(configId) && isValidId(rowId) && isAdmin();
+      }
     }
   }
 }

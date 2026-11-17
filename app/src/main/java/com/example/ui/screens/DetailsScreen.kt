@@ -198,11 +198,22 @@ fun DetailsScreen(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "${(item.trendingScore / 10).coerceIn(84, 99)}% Match",
-                                style = MaterialTheme.typography.labelLarge,
-                                color = VeloraMatchGreen
-                            )
+                            if (item.isComingSoon) {
+                                Surface(color = VeloraGold.copy(alpha = 0.22f), shape = RoundedCornerShape(4.dp)) {
+                                    Text(
+                                        text = "COMING SOON",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = VeloraGold,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = "${(item.trendingScore / 10).coerceIn(84, 99)}% Match",
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = VeloraMatchGreen
+                                )
+                            }
                             Text("${item.releaseYear}", style = MaterialTheme.typography.bodySmall, color = VeloraOnSurfaceMuted)
                             Surface(color = VeloraSurfaceBright, shape = RoundedCornerShape(4.dp)) {
                                 Text(
@@ -229,28 +240,56 @@ fun DetailsScreen(
                 modifier = Modifier.padding(horizontal = 16.dp),
                 verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                Button(
-                    onClick = {
-                        if (item.isSeries && episodes.isNotEmpty()) {
-                            val resumeEp = itemProgress?.episodeId?.let { eid -> episodes.firstOrNull { it.id == eid } }
-                            onPlayEpisode(resumeEp ?: episodes.first())
-                        } else {
-                            onPlayMovieOrDefault()
+                if (item.isComingSoon) {
+                    val releaseText = item.expectedReleaseDate?.takeIf { it.isNotBlank() } ?: item.releaseYear.toString()
+                    Surface(
+                        color = VeloraSurfaceElevated,
+                        shape = RoundedCornerShape(10.dp),
+                        border = BorderStroke(1.dp, VeloraGold.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("details_coming_soon_banner")
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Coming Soon • Expected $releaseText",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = VeloraGold
+                            )
+                            Text(
+                                text = "This upcoming release is not yet available to stream. Save it to My List or watch the preview trailer if available.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = VeloraOnSurfaceMuted
+                            )
                         }
-                    },
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(50.dp)
-                        .testTag("details_play_button"),
-                    shape = RoundedCornerShape(10.dp),
-                    colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
-                ) {
-                    Icon(Icons.Filled.PlayArrow, contentDescription = null)
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = if (itemProgress != null && !itemProgress.completed) "Resume Playback" else "Play Now",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
+                    }
+                } else {
+                    Button(
+                        onClick = {
+                            if (item.isSeries && episodes.isNotEmpty()) {
+                                val resumeEp = itemProgress?.episodeId?.let { eid -> episodes.firstOrNull { it.id == eid } }
+                                onPlayEpisode(resumeEp ?: episodes.first())
+                            } else {
+                                onPlayMovieOrDefault()
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(50.dp)
+                            .testTag("details_play_button"),
+                        shape = RoundedCornerShape(10.dp),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color.White, contentColor = Color.Black)
+                    ) {
+                        Icon(Icons.Filled.PlayArrow, contentDescription = null)
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = if (itemProgress != null && !itemProgress.completed) "Resume Playback" else "Play Now",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
                 }
 
                 Row(
@@ -441,7 +480,7 @@ fun DetailsScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 16.dp)
-                        .clickable { onPlayEpisode(ep) }
+                        .clickable(enabled = !item.isComingSoon) { onPlayEpisode(ep) }
                         .testTag("episode_card_${ep.id}")
                 ) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -464,15 +503,23 @@ fun DetailsScreen(
                                 Box(
                                     modifier = Modifier
                                         .fillMaxSize()
-                                        .background(Color.Black.copy(alpha = 0.35f)),
+                                        .background(Color.Black.copy(alpha = if (item.isComingSoon) 0.55f else 0.35f)),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.PlayArrow,
-                                        contentDescription = "Play episode ${ep.episodeNumber}",
-                                        tint = Color.White,
-                                        modifier = Modifier.size(28.dp)
-                                    )
+                                    if (!item.isComingSoon) {
+                                        Icon(
+                                            imageVector = Icons.Filled.PlayArrow,
+                                            contentDescription = "Play episode ${ep.episodeNumber}",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(28.dp)
+                                        )
+                                    } else {
+                                        Text(
+                                            text = "SOON",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = VeloraGold
+                                        )
+                                    }
                                 }
                             }
                             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {

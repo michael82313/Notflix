@@ -344,7 +344,7 @@ class ProfileRepository(
             .collection("profiles").document(profileId)
             .collection("progress").document(progressId)
 
-        val completed = durationMs > 0L && positionMs >= (durationMs * 0.92).toLong()
+        val completed = com.example.ui.state.CompletionTracker.isPlaybackCompleted(positionMs, durationMs)
         val payload = PlaybackProgress(
             contentId = contentId,
             episodeId = episodeId,
