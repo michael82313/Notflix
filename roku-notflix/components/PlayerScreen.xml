@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PlayerScreen" extends="Group">
+    <interface>
+        <!-- playRequest: { item, episode?, seasonNumber, episodeNumber, resumeSec, sourceInfo, nextEpisode?, nextSeasonNumber } -->
+        <field id="playRequest" type="assocarray" alwaysNotify="true" onChange="onPlayRequestChanged" />
+        <field id="saveProgressEvent" type="assocarray" alwaysNotify="true" />
+        <field id="playNextEpisodeEvent" type="assocarray" alwaysNotify="true" />
+        <field id="closed" type="boolean" alwaysNotify="true" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/Config.brs" />
+    <script type="text/brightscript" uri="pkg:/source/VideoSourceUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/source/FirebaseUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/components/PlayerScreen.brs" />
+
+    <children>
+        <Rectangle width="1920" height="1080" color="0x000000FF" />
+
+        <!-- Native Roku Hardware-Accelerated Video Player -->
+        <Video
+            id="videoPlayer"
+            width="1920"
+            height="1080"
+            translation="[0, 0]"
+            enableUI="true"
+            enableTrickPlay="true"
+            visible="false" />
+
+        <!-- Periodic Progress Save Timer (every 15 seconds while playing) -->
+        <Timer
+            id="progressTimer"
+            duration="15"
+            repeat="true" />
+
+        <!-- Top Title Banner (shown briefly on launch / buffering / pause) -->
+        <Group id="titleBanner" visible="false">
+            <Rectangle width="1920" height="132" color="0x080808C8" />
+            <Label
+                id="bannerTitle"
+                width="1680"
+                height="48"
+                translation="[84, 24]"
+                font="font:MediumBoldSystemFont"
+                color="0xF5F5F7FF" />
+            <Label
+                id="bannerSubtitle"
+                width="1680"
+                height="32"
+                translation="[84, 76]"
+                font="font:SmallestSystemFont"
+                color="0xA0A3B1FF" />
+        </Group>
+
+        <!-- Initial Buffering Overlay -->
+        <Group id="bufferingOverlay" visible="false">
+            <Rectangle width="520" height="124" translation="[700, 478]" color="0x121217E6" />
+            <Rectangle width="520" height="4" translation="[700, 478]" color="0xE50914FF" />
+            <Label
+                id="bufferingLabel"
+                width="480"
+                height="116"
+                translation="[720, 482]"
+                horizAlign="center"
+                vertAlign="center"
+                text="Loading video stream..."
+                font="font:SmallBoldSystemFont"
+                color="0xF5F5F7FF" />
+        </Group>
+
+        <!-- Error / Unsupported Source Overlay -->
+        <Group id="errorOverlay" visible="false">
+            <Rectangle width="1920" height="1080" color="0x080808EA" />
+            <Rectangle width="960" height="470" translation="[480, 305]" color="0x15151FFF" />
+            <Rectangle width="960" height="5" translation="[480, 305]" color="0xE50914FF" />
+
+            <Label
+                id="errBadge"
+                width="860"
+                height="32"
+                translation="[530, 342]"
+                text="PLAYBACK NOTICE"
+                font="font:SmallestBoldSystemFont"
+                color="0xF59E0BFF" />
+            <Label
+                id="errTitle"
+                width="860"
+                height="56"
+                translation="[530, 378]"
+                font="font:MediumBoldSystemFont"
+                color="0xF5F5F7FF" />
+            <Label
+                id="errMessage"
+                width="860"
+                height="168"
+                translation="[530, 444]"
+                wrap="true"
+                numLines="5"
+                font="font:SmallSystemFont"
+                color="0xC8CBD8FF" />
+
+            <Group id="errRetryGroup" translation="[530, 648]">
+                <Rectangle id="errRetryBorder" width="260" height="68" color="0xFFFFFFFF" />
+                <Rectangle id="errRetryBg" width="252" height="60" translation="[4, 4]" color="0xE50914FF" />
+                <Label width="252" height="60" translation="[4, 4]" horizAlign="center" vertAlign="center" text="Retry" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" />
+            </Group>
+
+            <Group id="errBackGroup" translation="[814, 648]">
+                <Rectangle id="errBackBorder" width="320" height="68" color="0x2E2E3AFF" />
+                <Rectangle id="errBackBg" width="312" height="60" translation="[4, 4]" color="0x1F1F2BFF" />
+                <Label width="312" height="60" translation="[4, 4]" horizAlign="center" vertAlign="center" text="Back to Details" font="font:SmallBoldSystemFont" color="0xF5F5F7FF" />
+            </Group>
+        </Group>
+
+        <!-- Up Next Episode Overlay (shown after finishing a TV episode) -->
+        <Group id="upNextOverlay" visible="false">
+            <Rectangle width="1920" height="1080" color="0x080808E6" />
+            <Rectangle width="920" height="400" translation="[500, 340]" color="0x15151FFF" />
+            <Rectangle width="920" height="5" translation="[500, 340]" color="0xE50914FF" />
+
+            <Label
+                width="820"
+                height="32"
+                translation="[550, 380]"
+                text="UP NEXT ON NOTFLIX"
+                font="font:SmallestBoldSystemFont"
+                color="0xE50914FF" />
+            <Label
+                id="upNextTitle"
+                width="820"
+                height="56"
+                translation="[550, 418]"
+                font="font:MediumBoldSystemFont"
+                color="0xF5F5F7FF" />
+            <Label
+                id="upNextSynopsis"
+                width="820"
+                height="96"
+                translation="[550, 484]"
+                wrap="true"
+                numLines="3"
+                font="font:SmallSystemFont"
+                color="0xC8CBD8FF" />
+
+            <Group translation="[550, 616]">
+                <Rectangle id="upNextPlayBorder" width="336" height="68" color="0xFFFFFFFF" />
+                <Rectangle id="upNextPlayBg" width="328" height="60" translation="[4, 4]" color="0xE50914FF" />
+                <Label width="328" height="60" translation="[4, 4]" horizAlign="center" vertAlign="center" text="Play Next Episode" font="font:SmallBoldSystemFont" color="0xFFFFFFFF" />
+
+                <Rectangle id="upNextBackBorder" width="300" height="68" translation="[360, 0]" color="0x2E2E3AFF" />
+                <Rectangle id="upNextBackBg" width="292" height="60" translation="[364, 4]" color="0x1F1F2BFF" />
+                <Label width="292" height="60" translation="[364, 4]" horizAlign="center" vertAlign="center" text="Back to Details" font="font:SmallBoldSystemFont" color="0xF5F5F7FF" />
+            </Group>
+        </Group>
+    </children>
+</component>

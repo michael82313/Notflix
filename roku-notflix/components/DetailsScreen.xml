@@ -1,0 +1,247 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="DetailsScreen" extends="Group">
+    <interface>
+        <field id="item" type="assocarray" onChange="onItemChanged" />
+        <field id="inWatchlist" type="boolean" value="false" onChange="onWatchlistChanged" />
+        <field id="progressList" type="array" onChange="onProgressListChanged" />
+        <field id="seriesData" type="assocarray" onChange="onSeriesDataChanged" />
+        <field id="focusRequested" type="boolean" alwaysNotify="true" onChange="onFocusRequested" />
+
+        <field id="playRequest" type="assocarray" alwaysNotify="true" />
+        <field id="toggleWatchlistRequest" type="assocarray" alwaysNotify="true" />
+        <field id="backRequested" type="boolean" alwaysNotify="true" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/Config.brs" />
+    <script type="text/brightscript" uri="pkg:/source/VideoSourceUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/source/FirebaseUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/components/DetailsScreen.brs" />
+
+    <children>
+        <Rectangle width="1920" height="1080" color="0x080808FF" />
+
+        <!-- Cinematic Backdrop -->
+        <Poster
+            id="backdropImg"
+            width="1920"
+            height="720"
+            translation="[0, 0]"
+            uri="pkg:/images/hero_nebula.jpg"
+            loadDisplayMode="scaleToFill"
+            failedBitmapUri="pkg:/images/hero_nebula.jpg" />
+        <Poster
+            width="1920"
+            height="720"
+            translation="[0, 0]"
+            uri="pkg:/images/hero_vignette_h.png"
+            loadDisplayMode="scaleToFill" />
+        <Poster
+            width="1920"
+            height="720"
+            translation="[0, 0]"
+            uri="pkg:/images/hero_vignette_v.png"
+            loadDisplayMode="scaleToFill" />
+        <Rectangle width="1920" height="1080" color="0x08080888" />
+
+        <!-- Poster Card (Left) -->
+        <Rectangle width="292" height="432" translation="[106, 68]" color="0x2A2A36FF" />
+        <Poster
+            id="posterImg"
+            width="284"
+            height="424"
+            translation="[110, 72]"
+            loadDisplayMode="scaleToFill"
+            loadingBitmapUri="pkg:/images/poster_fallback.jpg"
+            failedBitmapUri="pkg:/images/poster_fallback.jpg" />
+
+        <!-- Header Metadata (Right of Poster) -->
+        <Label
+            id="sourceBadge"
+            width="1360"
+            height="32"
+            translation="[436, 74]"
+            text="MOVIE"
+            font="font:SmallestBoldSystemFont"
+            color="0x22C55EFF" />
+
+        <Label
+            id="titleLabel"
+            width="1360"
+            height="70"
+            translation="[436, 110]"
+            font="font:LargeBoldSystemFont"
+            color="0xF5F5F7FF" />
+
+        <Label
+            id="metaLabel"
+            width="1360"
+            height="36"
+            translation="[436, 188]"
+            font="font:SmallBoldSystemFont"
+            color="0xEAEAF0FF" />
+
+        <Label
+            id="synopsisLabel"
+            width="1320"
+            height="136"
+            translation="[436, 236]"
+            wrap="true"
+            numLines="4"
+            ellipsizeOnBoundary="true"
+            font="font:SmallSystemFont"
+            color="0xC8CBD8FF" />
+
+        <!-- Action Buttons Row -->
+        <Group id="actionButtonsGroup" translation="[436, 392]">
+            <!-- Button 0: Play / Resume -->
+            <Group id="btnPlayGroup" translation="[0, 0]">
+                <Rectangle id="btnPlayBorder" width="328" height="72" color="0xFFFFFFFF" />
+                <Rectangle id="btnPlayBg" width="320" height="64" translation="[4, 4]" color="0xE50914FF" />
+                <Label
+                    id="btnPlayLabel"
+                    width="304"
+                    height="64"
+                    translation="[12, 4]"
+                    horizAlign="center"
+                    vertAlign="center"
+                    text="Play"
+                    font="font:SmallBoldSystemFont"
+                    color="0xFFFFFFFF" />
+            </Group>
+
+            <!-- Button 1: Start Over (visible when resumable) -->
+            <Group id="btnStartOverGroup" translation="[348, 0]" visible="false">
+                <Rectangle id="btnStartOverBorder" width="236" height="72" color="0x2E2E3AFF" />
+                <Rectangle id="btnStartOverBg" width="228" height="64" translation="[4, 4]" color="0x1D1D28FF" />
+                <Label
+                    id="btnStartOverLabel"
+                    width="228"
+                    height="64"
+                    translation="[4, 4]"
+                    horizAlign="center"
+                    vertAlign="center"
+                    text="Start Over"
+                    font="font:SmallBoldSystemFont"
+                    color="0xF5F5F7FF" />
+            </Group>
+
+            <!-- Button 2: My List Toggle -->
+            <Group id="btnListGroup" translation="[348, 0]">
+                <Rectangle id="btnListBorder" width="256" height="72" color="0x2E2E3AFF" />
+                <Rectangle id="btnListBg" width="248" height="64" translation="[4, 4]" color="0x1D1D28FF" />
+                <Label
+                    id="btnListLabel"
+                    width="248"
+                    height="64"
+                    translation="[4, 4]"
+                    horizAlign="center"
+                    vertAlign="center"
+                    text="+ My List"
+                    font="font:SmallBoldSystemFont"
+                    color="0xF5F5F7FF" />
+            </Group>
+
+            <!-- Button 3: Back -->
+            <Group id="btnBackGroup" translation="[624, 0]">
+                <Rectangle id="btnBackBorder" width="184" height="72" color="0x2E2E3AFF" />
+                <Rectangle id="btnBackBg" width="176" height="64" translation="[4, 4]" color="0x1D1D28FF" />
+                <Label
+                    id="btnBackLabel"
+                    width="176"
+                    height="64"
+                    translation="[4, 4]"
+                    horizAlign="center"
+                    vertAlign="center"
+                    text="Back"
+                    font="font:SmallBoldSystemFont"
+                    color="0xF5F5F7FF" />
+            </Group>
+        </Group>
+
+        <!-- Compatibility / Status Hint -->
+        <Label
+            id="compatNotice"
+            width="1340"
+            height="68"
+            translation="[436, 476]"
+            wrap="true"
+            numLines="2"
+            font="font:SmallestSystemFont"
+            color="0xF59E0BFF" />
+
+        <!-- TV Series Section (Seasons + Episodes) -->
+        <Group id="seriesSection" translation="[110, 560]" visible="false">
+            <Rectangle width="1700" height="2" translation="[0, 0]" color="0x2A2A38FF" />
+
+            <!-- Season Selector Bar -->
+            <Group id="seasonSelectorGroup" translation="[0, 22]">
+                <Rectangle id="seasonBarBorder" width="460" height="58" color="0x2E2E3AFF" />
+                <Rectangle id="seasonBarBg" width="452" height="50" translation="[4, 4]" color="0x181822FF" />
+                <Label
+                    id="seasonBarLabel"
+                    width="436"
+                    height="50"
+                    translation="[12, 4]"
+                    vertAlign="center"
+                    text="Season 1"
+                    font="font:SmallBoldSystemFont"
+                    color="0xF5F5F7FF" />
+                <Label
+                    id="seasonHintLabel"
+                    width="820"
+                    height="50"
+                    translation="[486, 4]"
+                    vertAlign="center"
+                    text="Use Left / Right to switch seasons  •  Press Down for episodes"
+                    font="font:SmallestSystemFont"
+                    color="0xA0A3B1FF" />
+            </Group>
+
+            <!-- Loading / Error / Empty Label -->
+            <Label
+                id="seriesStatusLabel"
+                width="1360"
+                height="90"
+                translation="[0, 110]"
+                wrap="true"
+                numLines="2"
+                text="Loading seasons and episodes..."
+                font="font:SmallSystemFont"
+                color="0xA0A3B1FF"
+                visible="false" />
+
+            <!-- Episodes List -->
+            <MarkupList
+                id="episodeList"
+                translation="[0, 102]"
+                itemComponentName="EpisodeItem"
+                numRows="2"
+                itemSize="[1360, 156]"
+                itemSpacing="[0, 18]"
+                drawFocusFeedback="false"
+                vertFocusAnimationStyle="floatingFocus" />
+        </Group>
+
+        <!-- Movie Extra Info Footer (shown when item is a movie) -->
+        <Group id="movieInfoSection" translation="[110, 580]" visible="false">
+            <Rectangle width="1700" height="2" translation="[0, 0]" color="0x2A2A38FF" />
+            <Label
+                id="movieFooterTitle"
+                width="1680"
+                height="40"
+                translation="[0, 28]"
+                text="ABOUT THIS TITLE"
+                font="font:SmallestBoldSystemFont"
+                color="0xA0A3B1FF" />
+            <Label
+                id="movieFooterBody"
+                width="1600"
+                height="160"
+                translation="[0, 74]"
+                wrap="true"
+                numLines="4"
+                font="font:SmallSystemFont"
+                color="0xC8CBD8FF" />
+        </Group>
+    </children>
+</component>

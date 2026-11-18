@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="AuthTask" extends="Task">
+    <interface>
+        <!-- request: { action: "restore"|"signIn"|"resetPassword"|"signOut", email?, password? } -->
+        <field id="request" type="assocarray" />
+        <!-- response: { ok, action, session?, account?, message?, errorMessage? } -->
+        <field id="response" type="assocarray" alwaysNotify="true" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/Config.brs" />
+    <script type="text/brightscript" uri="pkg:/source/VideoSourceUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/source/FirebaseUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/components/tasks/AuthTask.brs" />
+</component>

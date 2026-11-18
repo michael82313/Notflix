@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="ProfileScreen" extends="Group">
+    <interface>
+        <field id="profiles" type="array" onChange="onProfilesChanged" />
+        <field id="accountEmail" type="string" value="" onChange="onAccountEmailChanged" />
+        <field id="errorMessage" type="string" value="" onChange="onErrorChanged" />
+        <field id="selectedProfile" type="assocarray" alwaysNotify="true" />
+        <field id="signOutRequested" type="boolean" alwaysNotify="true" />
+        <field id="retryRequested" type="boolean" alwaysNotify="true" />
+        <field id="focusRequested" type="boolean" alwaysNotify="true" onChange="onFocusRequested" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/components/ProfileScreen.brs" />
+
+    <children>
+        <Rectangle width="1920" height="1080" color="0x080808FF" />
+
+        <Label
+            width="1920"
+            height="64"
+            translation="[0, 74]"
+            horizAlign="center"
+            text="NOTFLIX"
+            font="font:LargeBoldSystemFont"
+            color="0xE50914FF" />
+
+        <Label
+            width="1920"
+            height="64"
+            translation="[0, 178]"
+            horizAlign="center"
+            text="Who's watching?"
+            font="font:LargeBoldSystemFont"
+            color="0xF5F5F7FF" />
+
+        <Label
+            id="emailSubtitle"
+            width="1920"
+            height="36"
+            translation="[0, 250]"
+            horizAlign="center"
+            text=""
+            font="font:SmallSystemFont"
+            color="0xA0A3B1FF" />
+
+        <Label
+            id="errorLabel"
+            width="1400"
+            height="72"
+            translation="[260, 310]"
+            horizAlign="center"
+            wrap="true"
+            numLines="2"
+            font="font:SmallBoldSystemFont"
+            color="0xFF5370FF" />
+
+        <!-- Horizontal profile grid -->
+        <MarkupGrid
+            id="profileGrid"
+            translation="[240, 380]"
+            itemComponentName="ProfileItem"
+            numColumns="5"
+            numRows="1"
+            itemSize="[232, 304]"
+            itemSpacing="[44, 0]"
+            drawFocusFeedback="false" />
+
+        <!-- Bottom action buttons: Retry (if error) / Sign Out -->
+        <Group id="actionsGroup" translation="[660, 780]">
+            <Rectangle id="retryBorder" width="276" height="68" translation="[0, 0]" color="0x2E2E3AFF" />
+            <Rectangle id="retryBg" width="268" height="60" translation="[4, 4]" color="0x1A1A24FF" />
+            <Label width="268" height="60" translation="[4, 4]" horizAlign="center" vertAlign="center" text="Refresh Profiles" font="font:SmallBoldSystemFont" color="0xF5F5F7FF" />
+
+            <Rectangle id="signOutBorder" width="276" height="68" translation="[316, 0]" color="0x2E2E3AFF" />
+            <Rectangle id="signOutBg" width="268" height="60" translation="[320, 4]" color="0x1A1A24FF" />
+            <Label width="268" height="60" translation="[320, 4]" horizAlign="center" vertAlign="center" text="Sign Out" font="font:SmallBoldSystemFont" color="0xF5F5F7FF" />
+        </Group>
+
+        <Label
+            width="1920"
+            height="36"
+            translation="[0, 960]"
+            horizAlign="center"
+            text="Each profile keeps its own Continue Watching, My List, and recommendations."
+            font="font:SmallestSystemFont"
+            color="0x7E8294FF" />
+    </children>
+</component>

@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="SignInScreen" extends="Group">
+    <interface>
+        <field id="isBusy" type="boolean" value="false" onChange="onBusyChanged" />
+        <field id="errorMessage" type="string" value="" onChange="onStatusChanged" />
+        <field id="infoMessage" type="string" value="" onChange="onStatusChanged" />
+        <field id="signInRequest" type="assocarray" alwaysNotify="true" />
+        <field id="resetPasswordRequest" type="string" alwaysNotify="true" />
+        <field id="focusRequested" type="boolean" alwaysNotify="true" onChange="onFocusRequested" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/Config.brs" />
+    <script type="text/brightscript" uri="pkg:/components/SignInScreen.brs" />
+
+    <children>
+        <!-- Cinematic dark background -->
+        <Poster
+            id="bgPoster"
+            width="1920"
+            height="1080"
+            uri="pkg:/images/hero_nebula.jpg"
+            loadDisplayMode="scaleToFill" />
+        <Poster
+            width="1920"
+            height="1080"
+            uri="pkg:/images/hero_vignette_v.png"
+            loadDisplayMode="scaleToFill" />
+        <Rectangle
+            width="1920"
+            height="1080"
+            color="0x080808B8" />
+
+        <!-- Top Notflix brand header -->
+        <Label
+            width="1920"
+            height="72"
+            translation="[0, 68]"
+            horizAlign="center"
+            text="NOTFLIX"
+            font="font:LargeBoldSystemFont"
+            color="0xE50914FF" />
+        <Label
+            id="privacyLabel"
+            width="1920"
+            height="36"
+            translation="[0, 144]"
+            horizAlign="center"
+            text="Always Free  •  Ad-Free  •  We Never Sell Your Personal Information"
+            font="font:SmallSystemFont"
+            color="0xA0A3B1FF" />
+
+        <!-- Centered Sign-In Card -->
+        <Rectangle
+            width="860"
+            height="740"
+            translation="[530, 210]"
+            color="0x121217EE" />
+        <Rectangle
+            width="860"
+            height="4"
+            translation="[530, 210]"
+            color="0xE50914FF" />
+
+        <Label
+            width="760"
+            height="48"
+            translation="[580, 244]"
+            text="Sign In to Your Notflix Account"
+            font="font:MediumBoldSystemFont"
+            color="0xF5F5F7FF" />
+        <Label
+            width="760"
+            height="56"
+            translation="[580, 296]"
+            wrap="true"
+            numLines="2"
+            text="Use your existing Notflix email and password to sync your profiles, My List, and Continue Watching."
+            font="font:SmallestSystemFont"
+            color="0xA0A3B1FF" />
+
+        <!-- Field 0: Email -->
+        <Label
+            width="760"
+            height="28"
+            translation="[580, 368]"
+            text="EMAIL ADDRESS (Press OK to enter)"
+            font="font:SmallestBoldSystemFont"
+            color="0xA0A3B1FF" />
+        <Rectangle
+            id="emailBorder"
+            width="764"
+            height="72"
+            translation="[578, 398]"
+            color="0xE50914FF" />
+        <Rectangle
+            id="emailBg"
+            width="756"
+            height="64"
+            translation="[582, 402]"
+            color="0x1C1C26FF" />
+        <Label
+            id="emailValue"
+            width="724"
+            height="64"
+            translation="[598, 402]"
+            vertAlign="center"
+            text="Select to enter email..."
+            font="font:SmallSystemFont"
+            color="0x7E8294FF" />
+
+        <!-- Field 1: Password -->
+        <Label
+            width="760"
+            height="28"
+            translation="[580, 488]"
+            text="PASSWORD (Press OK to enter)"
+            font="font:SmallestBoldSystemFont"
+            color="0xA0A3B1FF" />
+        <Rectangle
+            id="passBorder"
+            width="764"
+            height="72"
+            translation="[578, 518]"
+            color="0x2E2E3AFF" />
+        <Rectangle
+            id="passBg"
+            width="756"
+            height="64"
+            translation="[582, 522]"
+            color="0x1C1C26FF" />
+        <Label
+            id="passValue"
+            width="724"
+            height="64"
+            translation="[598, 522]"
+            vertAlign="center"
+            text="Select to enter password..."
+            font="font:SmallSystemFont"
+            color="0x7E8294FF" />
+
+        <!-- Status / Error message -->
+        <Label
+            id="statusLabel"
+            width="760"
+            height="72"
+            translation="[580, 604]"
+            wrap="true"
+            numLines="3"
+            font="font:SmallestBoldSystemFont"
+            color="0xFF5370FF" />
+
+        <!-- Field 2: Sign In Button -->
+        <Rectangle
+            id="signInBorder"
+            width="764"
+            height="74"
+            translation="[578, 686]"
+            color="0x2E2E3AFF" />
+        <Rectangle
+            id="signInBg"
+            width="756"
+            height="66"
+            translation="[582, 690]"
+            color="0xE50914FF" />
+        <Label
+            id="signInLabel"
+            width="756"
+            height="66"
+            translation="[582, 690]"
+            horizAlign="center"
+            vertAlign="center"
+            text="SIGN IN"
+            font="font:SmallBoldSystemFont"
+            color="0xFFFFFFFF" />
+
+        <!-- Field 3: Set / Reset Password Button -->
+        <Rectangle
+            id="resetBorder"
+            width="764"
+            height="64"
+            translation="[578, 774]"
+            color="0x2E2E3AFF" />
+        <Rectangle
+            id="resetBg"
+            width="756"
+            height="56"
+            translation="[582, 778]"
+            color="0x1A1A24FF" />
+        <Label
+            id="resetLabel"
+            width="756"
+            height="56"
+            translation="[582, 778]"
+            horizAlign="center"
+            vertAlign="center"
+            text="Google Sign-In User? Send Password Setup / Reset Email"
+            font="font:SmallestBoldSystemFont"
+            color="0xEAEAF0FF" />
+
+        <!-- Footnote -->
+        <Label
+            width="760"
+            height="68"
+            translation="[580, 854]"
+            wrap="true"
+            numLines="2"
+            horizAlign="center"
+            text="Tip: If you originally joined Notflix with Google on Android, enter your email above and choose Password Setup to keep your exact account and profiles."
+            font="font:SmallestSystemFont"
+            color="0x8B8FA1FF" />
+    </children>
+</component>

@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="EpisodeItem" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="onItemContentChanged" />
+        <field id="focusPercent" type="float" onChange="onFocusPercentChanged" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/components/EpisodeItem.brs" />
+
+    <children>
+        <Rectangle
+            id="focusBorder"
+            width="1368"
+            height="164"
+            translation="[-4, -4]"
+            color="0xE50914FF"
+            opacity="0.0" />
+
+        <Rectangle
+            id="rowBg"
+            width="1360"
+            height="156"
+            color="0x15151DFF" />
+
+        <Poster
+            id="thumbImg"
+            width="256"
+            height="144"
+            translation="[6, 6]"
+            loadDisplayMode="scaleToFill"
+            loadingBitmapUri="pkg:/images/episode_fallback.jpg"
+            failedBitmapUri="pkg:/images/episode_fallback.jpg" />
+
+        <!-- Episode progress bar overlaid on bottom of thumbnail -->
+        <Rectangle
+            id="epProgTrack"
+            width="256"
+            height="6"
+            translation="[6, 144]"
+            color="0x3A3A48FF"
+            visible="false" />
+        <Rectangle
+            id="epProgFill"
+            width="0"
+            height="6"
+            translation="[6, 144]"
+            color="0xE50914FF"
+            visible="false" />
+
+        <Label
+            id="epTitle"
+            width="920"
+            height="36"
+            translation="[284, 14]"
+            font="font:SmallBoldSystemFont"
+            color="0xF5F5F7FF" />
+
+        <Label
+            id="epMeta"
+            width="140"
+            height="32"
+            translation="[1204, 16]"
+            horizAlign="right"
+            font="font:SmallestSystemFont"
+            color="0xA0A3B1FF" />
+
+        <Label
+            id="epSynopsis"
+            width="1048"
+            height="64"
+            translation="[284, 54]"
+            numLines="2"
+            wrap="true"
+            ellipsizeOnBoundary="true"
+            font="font:SmallestSystemFont"
+            color="0xB8BBC8FF" />
+
+        <Label
+            id="epStatus"
+            width="1048"
+            height="28"
+            translation="[284, 120]"
+            font="font:SmallestBoldSystemFont"
+            color="0x22C55EFF" />
+    </children>
+</component>

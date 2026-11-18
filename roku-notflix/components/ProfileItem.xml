@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="ProfileItem" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="onItemContentChanged" />
+        <field id="focusPercent" type="float" onChange="onFocusPercentChanged" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/components/ProfileItem.brs" />
+
+    <children>
+        <Rectangle
+            id="focusRing"
+            width="244"
+            height="244"
+            translation="[-6, -6]"
+            color="0xF5F5F7FF"
+            opacity="0.0" />
+
+        <Rectangle
+            id="avatarBg"
+            width="232"
+            height="232"
+            color="0xE50914FF" />
+
+        <Label
+            id="initialLabel"
+            width="232"
+            height="232"
+            horizAlign="center"
+            vertAlign="center"
+            font="font:LargeBoldSystemFont"
+            color="0xFFFFFFFF" />
+
+        <Rectangle
+            id="kidsBadgeBg"
+            width="92"
+            height="32"
+            translation="[70, 186]"
+            color="0x080808D8"
+            visible="false" />
+        <Label
+            id="kidsBadgeLabel"
+            width="92"
+            height="32"
+            translation="[70, 186]"
+            horizAlign="center"
+            vertAlign="center"
+            text="KIDS"
+            font="font:SmallestBoldSystemFont"
+            color="0x38BDF8FF"
+            visible="false" />
+
+        <Label
+            id="nameLabel"
+            width="232"
+            height="46"
+            translation="[0, 248]"
+            horizAlign="center"
+            vertAlign="center"
+            font="font:MediumBoldSystemFont"
+            color="0xA0A3B1FF" />
+    </children>
+</component>

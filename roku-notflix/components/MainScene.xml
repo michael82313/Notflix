@@ -1,0 +1,135 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="MainScene" extends="Scene">
+    <interface>
+        <field id="launchArgs" type="assocarray" onChange="onLaunchArgsChanged" />
+        <field id="exitChannel" type="boolean" value="false" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/Config.brs" />
+    <script type="text/brightscript" uri="pkg:/source/VideoSourceUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/source/FirebaseUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/source/HomeRowBuilder.brs" />
+    <script type="text/brightscript" uri="pkg:/components/MainScene.brs" />
+
+    <children>
+        <Rectangle width="1920" height="1080" color="0x080808FF" />
+
+        <!-- Primary Screens -->
+        <SignInScreen id="signInScreen" visible="false" />
+        <ProfileScreen id="profileScreen" visible="false" />
+        <HomeScreen id="homeScreen" visible="false" />
+        <SearchScreen id="searchScreen" visible="false" />
+        <MyListScreen id="myListScreen" visible="false" />
+        <DetailsScreen id="detailsScreen" visible="false" />
+        <PlayerScreen id="playerScreen" visible="false" />
+
+        <!-- Left TV Navigation Rail (visible on Home, Search, My List) -->
+        <Group id="navRailContainer" visible="false">
+            <Rectangle id="navScrim" width="1920" height="1080" color="0x00000099" visible="false" />
+            <Rectangle id="navBg" width="104" height="1080" color="0x0F0F16F0" />
+            <Rectangle id="navDivider" width="2" height="1080" translation="[104, 0]" color="0x262634FF" />
+
+            <!-- Compact Notflix 'N' Mark / Expanded Brand Header -->
+            <Label
+                id="navBrandLabel"
+                width="104"
+                height="64"
+                translation="[0, 34]"
+                horizAlign="center"
+                vertAlign="center"
+                text="N"
+                font="font:LargeBoldSystemFont"
+                color="0xE50914FF" />
+
+            <!-- Nav Item 0: Home -->
+            <Group id="navItem0" translation="[14, 180]">
+                <Rectangle id="navBg0" width="76" height="68" color="0x1C1C28FF" />
+                <Rectangle id="navBar0" width="5" height="68" color="0xE50914FF" />
+                <Label id="navShort0" width="76" height="68" horizAlign="center" vertAlign="center" text="HM" font="font:SmallestBoldSystemFont" color="0xF5F5F7FF" />
+                <Label id="navFull0" width="260" height="68" translation="[26, 0]" vertAlign="center" text="Home" font="font:SmallBoldSystemFont" color="0xF5F5F7FF" visible="false" />
+            </Group>
+
+            <!-- Nav Item 1: Search -->
+            <Group id="navItem1" translation="[14, 266]">
+                <Rectangle id="navBg1" width="76" height="68" color="0x12121AFF" />
+                <Rectangle id="navBar1" width="5" height="68" color="0x00000000" />
+                <Label id="navShort1" width="76" height="68" horizAlign="center" vertAlign="center" text="SR" font="font:SmallestBoldSystemFont" color="0xA0A3B1FF" />
+                <Label id="navFull1" width="260" height="68" translation="[26, 0]" vertAlign="center" text="Search" font="font:SmallBoldSystemFont" color="0xEAEAF0FF" visible="false" />
+            </Group>
+
+            <!-- Nav Item 2: My List -->
+            <Group id="navItem2" translation="[14, 352]">
+                <Rectangle id="navBg2" width="76" height="68" color="0x12121AFF" />
+                <Rectangle id="navBar2" width="5" height="68" color="0x00000000" />
+                <Label id="navShort2" width="76" height="68" horizAlign="center" vertAlign="center" text="ML" font="font:SmallestBoldSystemFont" color="0xA0A3B1FF" />
+                <Label id="navFull2" width="260" height="68" translation="[26, 0]" vertAlign="center" text="My List" font="font:SmallBoldSystemFont" color="0xEAEAF0FF" visible="false" />
+            </Group>
+
+            <!-- Nav Item 3: Switch Profile -->
+            <Group id="navItem3" translation="[14, 474]">
+                <Rectangle id="navBg3" width="76" height="68" color="0x12121AFF" />
+                <Rectangle id="navBar3" width="5" height="68" color="0x00000000" />
+                <Label id="navShort3" width="76" height="68" horizAlign="center" vertAlign="center" text="PR" font="font:SmallestBoldSystemFont" color="0xA0A3B1FF" />
+                <Label id="navFull3" width="260" height="68" translation="[26, 0]" vertAlign="center" text="Switch Profile" font="font:SmallBoldSystemFont" color="0xEAEAF0FF" visible="false" />
+            </Group>
+
+            <!-- Nav Item 4: Sign Out -->
+            <Group id="navItem4" translation="[14, 560]">
+                <Rectangle id="navBg4" width="76" height="68" color="0x12121AFF" />
+                <Rectangle id="navBar4" width="5" height="68" color="0x00000000" />
+                <Label id="navShort4" width="76" height="68" horizAlign="center" vertAlign="center" text="SO" font="font:SmallestBoldSystemFont" color="0xA0A3B1FF" />
+                <Label id="navFull4" width="260" height="68" translation="[26, 0]" vertAlign="center" text="Sign Out" font="font:SmallBoldSystemFont" color="0xEAEAF0FF" visible="false" />
+            </Group>
+
+            <!-- Privacy Promise Footer (visible when expanded) -->
+            <Label
+                id="navPrivacyFooter"
+                width="292"
+                height="96"
+                translation="[24, 940]"
+                wrap="true"
+                numLines="3"
+                text="Always Free • Ad-Free&#10;We never sell your personal information."
+                font="font:SmallestSystemFont"
+                color="0x7E8294FF"
+                visible="false" />
+        </Group>
+
+        <!-- Global Toast / Status Notification Banner -->
+        <Group id="toastBanner" translation="[560, 28]" visible="false">
+            <Rectangle width="800" height="64" color="0x1A1A26EE" />
+            <Rectangle id="toastAccent" width="6" height="64" color="0xE50914FF" />
+            <Label
+                id="toastLabel"
+                width="756"
+                height="64"
+                translation="[24, 0]"
+                vertAlign="center"
+                font="font:SmallestBoldSystemFont"
+                color="0xF5F5F7FF" />
+        </Group>
+        <Timer id="toastTimer" duration="4" repeat="false" />
+
+        <!-- Global Loading Overlay -->
+        <Group id="loadingOverlay" visible="true">
+            <Rectangle width="1920" height="1080" color="0x080808DC" />
+            <Label
+                width="1920"
+                height="72"
+                translation="[0, 420]"
+                horizAlign="center"
+                text="NOTFLIX"
+                font="font:LargeBoldSystemFont"
+                color="0xE50914FF" />
+            <Label
+                id="loadingText"
+                width="1920"
+                height="48"
+                translation="[0, 504]"
+                horizAlign="center"
+                text="Connecting to Notflix..."
+                font="font:SmallSystemFont"
+                color="0xEAEAF0FF" />
+        </Group>
+    </children>
+</component>

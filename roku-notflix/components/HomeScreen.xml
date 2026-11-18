@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="HomeScreen" extends="Group">
+    <interface>
+        <field id="feedData" type="assocarray" onChange="onFeedDataChanged" />
+        <field id="profileName" type="string" value="" onChange="onProfileInfoChanged" />
+        <field id="isKidsProfile" type="boolean" value="false" onChange="onProfileInfoChanged" />
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+        <field id="requestNavFocus" type="boolean" alwaysNotify="true" />
+        <field id="focusRequested" type="boolean" alwaysNotify="true" onChange="onFocusRequested" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/Config.brs" />
+    <script type="text/brightscript" uri="pkg:/source/VideoSourceUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/source/FirebaseUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/components/HomeScreen.brs" />
+
+    <children>
+        <Rectangle width="1920" height="1080" color="0x080808FF" />
+
+        <!-- Cinematic Hero Backdrop (top section) -->
+        <Poster
+            id="heroBackdrop"
+            width="1920"
+            height="640"
+            translation="[0, 0]"
+            uri="pkg:/images/hero_nebula.jpg"
+            loadDisplayMode="scaleToFill"
+            failedBitmapUri="pkg:/images/hero_nebula.jpg" />
+        <Poster
+            width="1920"
+            height="640"
+            translation="[0, 0]"
+            uri="pkg:/images/hero_vignette_h.png"
+            loadDisplayMode="scaleToFill" />
+        <Poster
+            width="1920"
+            height="640"
+            translation="[0, 0]"
+            uri="pkg:/images/hero_vignette_v.png"
+            loadDisplayMode="scaleToFill" />
+
+        <!-- Top Bar Brand & Active Profile Pill -->
+        <Label
+            width="300"
+            height="52"
+            translation="[140, 36]"
+            text="NOTFLIX"
+            font="font:MediumBoldSystemFont"
+            color="0xE50914FF" />
+
+        <Rectangle
+            id="profilePillBg"
+            width="280"
+            height="42"
+            translation="[1550, 38]"
+            color="0x1A1A24DD" />
+        <Label
+            id="profilePillLabel"
+            width="260"
+            height="42"
+            translation="[1560, 38]"
+            horizAlign="center"
+            vertAlign="center"
+            text="Profile"
+            font="font:SmallestBoldSystemFont"
+            color="0xF5F5F7FF" />
+
+        <!-- Hero Metadata Overlay -->
+        <Label
+            id="heroBadge"
+            width="800"
+            height="30"
+            translation="[140, 128]"
+            text="FEATURED ON NOTFLIX"
+            font="font:SmallestBoldSystemFont"
+            color="0xE50914FF" />
+
+        <Label
+            id="heroTitle"
+            width="1120"
+            height="68"
+            translation="[140, 160]"
+            font="font:LargeBoldSystemFont"
+            color="0xF5F5F7FF" />
+
+        <Label
+            id="heroMeta"
+            width="1120"
+            height="34"
+            translation="[140, 234]"
+            font="font:SmallBoldSystemFont"
+            color="0x22C55EFF" />
+
+        <Label
+            id="heroSynopsis"
+            width="1020"
+            height="108"
+            translation="[140, 278]"
+            wrap="true"
+            numLines="3"
+            ellipsizeOnBoundary="true"
+            font="font:SmallSystemFont"
+            color="0xD6D8E4FF" />
+
+        <Label
+            id="heroHint"
+            width="1020"
+            height="32"
+            translation="[140, 404]"
+            text="Press OK for Details &amp; Play   •   Press Left at start of row for Menu"
+            font="font:SmallestSystemFont"
+            color="0xA0A3B1FF" />
+
+        <!-- Empty State Label -->
+        <Label
+            id="emptyLabel"
+            width="1400"
+            height="120"
+            translation="[260, 560]"
+            horizAlign="center"
+            wrap="true"
+            numLines="3"
+            text=""
+            font="font:MediumSystemFont"
+            color="0xA0A3B1FF"
+            visible="false" />
+
+        <!-- Horizontally Scrolling Content Rows -->
+        <RowList
+            id="homeRowList"
+            translation="[140, 468]"
+            itemComponentName="PosterItem"
+            numRows="2"
+            itemSize="[1680, 424]"
+            rowItemSize="[[240, 360]]"
+            itemSpacing="[0, 22]"
+            rowItemSpacing="[[24, 0]]"
+            showRowLabel="[true]"
+            showRowCounter="[true]"
+            rowLabelOffset="[[0, 10]]"
+            rowLabelColor="0xF5F5F7FF"
+            rowFocusAnimationStyle="fixedFocusWrap"
+            drawFocusFeedback="false" />
+    </children>
+</component>

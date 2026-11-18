@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="FirestoreTask" extends="Task">
+    <interface>
+        <!-- request: { action, session, profileId?, contentId?, item?, addToList?, progress?, skipCatalog? } -->
+        <field id="request" type="assocarray" />
+        <!-- response: { ok, action, session?, profiles?, catalog?, genres?, watchlist?, progress?, ratings?, seasons?, episodesBySeason?, inWatchlist?, errorMessage? } -->
+        <field id="response" type="assocarray" alwaysNotify="true" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/Config.brs" />
+    <script type="text/brightscript" uri="pkg:/source/VideoSourceUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/source/FirebaseUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/components/tasks/FirestoreTask.brs" />
+</component>

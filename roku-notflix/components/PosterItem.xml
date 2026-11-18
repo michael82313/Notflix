@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="PosterItem" extends="Group">
+    <interface>
+        <field id="itemContent" type="node" onChange="onItemContentChanged" />
+        <field id="focusPercent" type="float" onChange="onFocusPercentChanged" />
+        <field id="rowFocusPercent" type="float" onChange="onFocusPercentChanged" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/components/PosterItem.brs" />
+
+    <children>
+        <!-- Focus border frame -->
+        <Rectangle
+            id="focusFrame"
+            width="244"
+            height="364"
+            translation="[-2, -2]"
+            color="0xE50914FF"
+            opacity="0.0" />
+
+        <!-- Card background -->
+        <Rectangle
+            id="cardBg"
+            width="240"
+            height="360"
+            color="0x1A1A22FF" />
+
+        <!-- Poster artwork -->
+        <Poster
+            id="posterImg"
+            width="240"
+            height="360"
+            loadDisplayMode="scaleToFill"
+            loadingBitmapUri="pkg:/images/poster_fallback.jpg"
+            failedBitmapUri="pkg:/images/poster_fallback.jpg" />
+
+        <!-- Bottom subtle readability scrim for title & progress -->
+        <Rectangle
+            id="bottomScrim"
+            width="240"
+            height="86"
+            translation="[0, 274]"
+            color="0x080808D8" />
+
+        <!-- Top-left media type badge -->
+        <Rectangle
+            id="typeBadgeBg"
+            width="92"
+            height="28"
+            translation="[10, 10]"
+            color="0x080808CC"
+            visible="false" />
+        <Label
+            id="typeBadgeLabel"
+            width="92"
+            height="28"
+            translation="[10, 10]"
+            horizAlign="center"
+            vertAlign="center"
+            font="font:SmallestBoldSystemFont"
+            color="0xE50914FF"
+            visible="false" />
+
+        <!-- Title label -->
+        <Label
+            id="titleLabel"
+            width="216"
+            height="54"
+            translation="[12, 284]"
+            numLines="2"
+            wrap="true"
+            ellipsizeOnBoundary="true"
+            font="font:SmallestBoldSystemFont"
+            color="0xF5F5F7FF" />
+
+        <!-- Continue Watching progress track -->
+        <Rectangle
+            id="progressTrack"
+            width="216"
+            height="6"
+            translation="[12, 344]"
+            color="0x3A3A48FF"
+            visible="false" />
+        <Rectangle
+            id="progressFill"
+            width="0"
+            height="6"
+            translation="[12, 344]"
+            color="0xE50914FF"
+            visible="false" />
+    </children>
+</component>

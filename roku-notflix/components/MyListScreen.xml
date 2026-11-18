@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="MyListScreen" extends="Group">
+    <interface>
+        <field id="items" type="array" onChange="onItemsChanged" />
+        <field id="profileName" type="string" value="" onChange="onProfileNameChanged" />
+        <field id="selectedItem" type="assocarray" alwaysNotify="true" />
+        <field id="requestNavFocus" type="boolean" alwaysNotify="true" />
+        <field id="focusRequested" type="boolean" alwaysNotify="true" onChange="onFocusRequested" />
+    </interface>
+
+    <script type="text/brightscript" uri="pkg:/source/Config.brs" />
+    <script type="text/brightscript" uri="pkg:/source/VideoSourceUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/source/FirebaseUtil.brs" />
+    <script type="text/brightscript" uri="pkg:/components/MyListScreen.brs" />
+
+    <children>
+        <Rectangle width="1920" height="1080" color="0x080808FF" />
+
+        <Label
+            id="headerLabel"
+            width="1500"
+            height="60"
+            translation="[140, 48]"
+            text="My List"
+            font="font:LargeBoldSystemFont"
+            color="0xF5F5F7FF" />
+
+        <Label
+            id="subtitleLabel"
+            width="1500"
+            height="34"
+            translation="[140, 114]"
+            text="Saved movies and TV shows synced with your Notflix profile. Press Left at the start of a row for Menu."
+            font="font:SmallestSystemFont"
+            color="0xA0A3B1FF" />
+
+        <Label
+            id="emptyLabel"
+            width="1400"
+            height="140"
+            translation="[140, 320]"
+            wrap="true"
+            numLines="3"
+            text="Your My List is empty. Open any movie or TV show and select + My List to save it here."
+            font="font:MediumSystemFont"
+            color="0xA0A3B1FF"
+            visible="false" />
+
+        <MarkupGrid
+            id="listGrid"
+            translation="[140, 184]"
+            itemComponentName="PosterItem"
+            numColumns="6"
+            numRows="2"
+            itemSize="[240, 360]"
+            itemSpacing="[28, 30]"
+            drawFocusFeedback="false"
+            vertFocusAnimationStyle="floatingFocus" />
+    </children>
+</component>
