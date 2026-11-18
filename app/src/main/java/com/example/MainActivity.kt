@@ -66,19 +66,34 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.CatalogRepository
+import com.example.data.repository.GovernanceRepository
 import com.example.data.repository.MediaUploadRepository
 import com.example.data.repository.ProfileRepository
 import com.example.data.repository.SubscriptionRepository
 import com.example.data.repository.authStateFlow
 import com.example.ui.components.VeloraLogo
 import com.example.ui.navigation.VeloraRoute
+import com.example.ui.screens.AdminDashboardActions
 import com.example.ui.screens.AdminDashboardScreen
+import com.example.ui.screens.AdminDashboardState
 import com.example.ui.screens.DetailsScreen
+import com.example.ui.screens.ExploreScreen
+import com.example.ui.screens.HomeScreen
+import com.example.ui.screens.MyListAndActivityScreen
+import com.example.ui.screens.PlayerScreen
+import com.example.ui.screens.ProfileSelectorScreen
+import com.example.ui.screens.PublisherDashboardScreen
+import com.example.ui.screens.SettingsScreen
+import com.example.ui.screens.SignInScreen
+import com.example.ui.screens.signOutFromVelora
+import com.example.ui.state.VeloraViewModel
 import com.example.ui.theme.VeloraBackground
 import com.example.ui.theme.VeloraCrimson
 import com.example.ui.theme.VeloraError
 import com.example.ui.theme.VeloraOnBackground
 import com.example.ui.theme.VeloraOnSurfaceMuted
+import com.example.ui.theme.VeloraSurface
+import com.example.ui.theme.VeloraTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -88,21 +103,6 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.Alignment
-import com.example.ui.screens.ExploreScreen
-import com.example.ui.screens.HomeScreen
-import com.example.ui.screens.MyListAndActivityScreen
-import com.example.ui.screens.PlayerScreen
-import com.example.ui.screens.ProfileSelectorScreen
-import com.example.ui.screens.SettingsScreen
-import com.example.ui.screens.SignInScreen
-import com.example.ui.screens.signOutFromVelora
-import com.example.ui.state.VeloraViewModel
-import com.example.ui.theme.VeloraBackground
-import com.example.ui.theme.VeloraCrimson
-import com.example.ui.theme.VeloraOnBackground
-import com.example.ui.theme.VeloraOnSurfaceMuted
-import com.example.ui.theme.VeloraSurface
-import com.example.ui.theme.VeloraTheme
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
@@ -173,7 +173,8 @@ private fun AuthenticatedVeloraApp(
                     catalogRepository = CatalogRepository(db),
                     subscriptionRepository = SubscriptionRepository(db),
                     currentUserId = currentUserId,
-                    mediaUploadRepository = MediaUploadRepository(app)
+                    mediaUploadRepository = MediaUploadRepository(app),
+                    governanceRepository = GovernanceRepository(db)
                 )
             }
         }
@@ -183,7 +184,12 @@ private fun AuthenticatedVeloraApp(
     val profilesState by viewModel.profilesState.collectAsStateWithLifecycle()
     val activeProfile by viewModel.activeProfile.collectAsStateWithLifecycle()
     val account by viewModel.accountState.collectAsStateWithLifecycle()
+    val effectiveRole by viewModel.effectiveRole.collectAsStateWithLifecycle()
     val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
+    val isApprovedPublisher by viewModel.isApprovedPublisher.collectAsStateWithLifecycle()
+    val myPublisherApplication by viewModel.myPublisherApplication.collectAsStateWithLifecycle()
+    val mySubmissions by viewModel.mySubmissions.collectAsStateWithLifecycle()
+    val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
     val catalogState by viewModel.rawCatalogState.collectAsStateWithLifecycle()
     val rawCatalog by viewModel.rawCatalog.collectAsStateWithLifecycle()
     val catalog by viewModel.catalog.collectAsStateWithLifecycle()
@@ -193,11 +199,9 @@ private fun AuthenticatedVeloraApp(
     val ratings by viewModel.ratings.collectAsStateWithLifecycle()
     val searchHistory by viewModel.searchHistory.collectAsStateWithLifecycle()
     val notifications by viewModel.notifications.collectAsStateWithLifecycle()
-    val adminUsers by viewModel.adminUsers.collectAsStateWithLifecycle()
     val userSubscription by viewModel.userSubscription.collectAsStateWithLifecycle()
     val subscriptionPlans by viewModel.subscriptionPlans.collectAsStateWithLifecycle()
     val freePlanFeatures by viewModel.freePlanFeatures.collectAsStateWithLifecycle()
-    val adminUserSubscriptions by viewModel.adminUserSubscriptions.collectAsStateWithLifecycle()
     val continueWatching by viewModel.continueWatching.collectAsStateWithLifecycle()
     val recommendations by viewModel.recommendations.collectAsStateWithLifecycle()
     val homeCategory by viewModel.homeCategory.collectAsStateWithLifecycle()
@@ -208,9 +212,6 @@ private fun AuthenticatedVeloraApp(
     val exploreSort by viewModel.exploreSort.collectAsStateWithLifecycle()
     val searchResults by viewModel.searchResults.collectAsStateWithLifecycle()
     val isSavingCatalog by viewModel.isSavingCatalog.collectAsStateWithLifecycle()
-    val mediaUploadStates by viewModel.mediaUploadStates.collectAsStateWithLifecycle()
-    val isLoadingSeriesStructure by viewModel.isLoadingSeriesStructure.collectAsStateWithLifecycle()
-    val editingSeriesSeasons by viewModel.editingSeriesSeasons.collectAsStateWithLifecycle()
     val homepageSettings by viewModel.homepageSettings.collectAsStateWithLifecycle()
     val homepageRowRules by viewModel.homepageRowRules.collectAsStateWithLifecycle()
     val seriesEpisodesById by viewModel.seriesEpisodesById.collectAsStateWithLifecycle()
@@ -283,41 +284,9 @@ private fun AuthenticatedVeloraApp(
                         .padding(innerPadding)
                         .background(VeloraBackground)
                 ) {
-                    AdminDashboardScreen(
-                        isAdmin = isAdmin,
-                        catalog = rawCatalog,
-                        genres = genres,
-                        users = adminUsers,
-                        subscriptionPlans = subscriptionPlans,
-                        userSubscriptions = adminUserSubscriptions,
-                        isSavingCatalog = isSavingCatalog,
-                        isLoadingSeriesSeasons = isLoadingSeriesStructure,
-                        loadedSeriesSeasons = editingSeriesSeasons,
-                        adminErrorMessage = (catalogState as? com.example.data.model.UiState.Error)?.message,
-                        mediaUploadStates = mediaUploadStates,
-                        homepageSettings = homepageSettings,
-                        homepageRowRules = homepageRowRules,
-                        onUploadMedia = { fieldKey, uri, category, folderHint, onUploaded ->
-                            viewModel.uploadMediaFile(fieldKey, uri, category, folderHint) { url, _, _ ->
-                                onUploaded(url)
-                            }
-                        },
-                        onClearUploadState = viewModel::clearMediaUploadState,
-                        onBack = { showPreProfileAdmin = false },
-                        onSeedCatalog = viewModel::seedCatalogNow,
-                        onSyncSubscriptionSchemas = viewModel::syncSubscriptionSchemasNow,
-                        onPrepareSeriesEditor = viewModel::prepareSeriesEditor,
-                        onSaveCatalogItem = viewModel::saveCatalogItem,
-                        onSaveSeriesWithSeasons = viewModel::saveSeriesWithSeasons,
-                        onDeleteCatalogItem = viewModel::deleteCatalogItem,
-                        onAddSeason = viewModel::addSeason,
-                        onAddEpisode = viewModel::addEpisode,
-                        onSaveGenre = viewModel::saveGenre,
-                        onDeleteGenre = viewModel::deleteGenre,
-                        onSaveHomepageSettings = viewModel::saveHomepageSettings,
-                        onSaveHomepageRowRules = viewModel::saveHomepageRowRules,
-                        onResetHomepageLayout = viewModel::resetHomepageLayout,
-                        onToggleUserAdmin = viewModel::setUserAdminRole
+                    AdminDashboardRoute(
+                        viewModel = viewModel,
+                        onBack = { showPreProfileAdmin = false }
                     )
                 }
             }
@@ -345,7 +314,10 @@ private fun AuthenticatedVeloraApp(
 
     val backStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry?.destination?.route ?: ""
-    val isPlayerOrDetails = currentRoute.contains("Player") || currentRoute.contains("Details") || currentRoute.contains("Admin")
+    val isPlayerOrDetails = currentRoute.contains("Player") ||
+        currentRoute.contains("Details") ||
+        currentRoute.contains("Admin") ||
+        currentRoute.contains("PublisherDashboard")
     var myListInitialTab by remember { mutableIntStateOf(0) }
 
     val navItems = remember(isAdmin) {
@@ -600,56 +572,52 @@ private fun AuthenticatedVeloraApp(
                     SettingsScreen(
                         account = account,
                         activeProfile = activeProfile,
+                        effectiveRole = effectiveRole,
+                        isApprovedPublisher = isApprovedPublisher,
+                        myPublisherApplication = myPublisherApplication,
+                        platformSettings = platformSettings,
                         userSubscription = userSubscription,
+                        availablePublicPlans = subscriptionPlans,
                         freePlanFeatures = freePlanFeatures,
                         isAdmin = isAdmin,
                         onSwitchProfile = viewModel::openProfileSwitcher,
                         onOpenAdminDashboard = { navController.navigate(VeloraRoute.Admin) { launchSingleTop = true } },
+                        onOpenPublisherDashboard = { navController.navigate(VeloraRoute.PublisherDashboard) { launchSingleTop = true } },
+                        onSubmitPublisherApplicationTracker = viewModel::submitPublisherApplicationTracker,
+                        onSelectPublicPlan = viewModel::selectPublicPlanForSelf,
                         onSavePreferences = viewModel::updatePreferences,
                         onSignOut = { signOutFromVelora(credentialManager, scope) }
                     )
                 }
 
-                composable<VeloraRoute.Admin> {
-                    AdminDashboardScreen(
-                        isAdmin = isAdmin,
-                        catalog = rawCatalog,
+                composable<VeloraRoute.PublisherDashboard> {
+                    PublisherDashboardScreen(
+                        isApprovedPublisher = isApprovedPublisher,
+                        publisherUid = currentUserId,
+                        publisherName = account?.publisherName?.takeIf { it.isNotBlank() }
+                            ?: account?.displayName?.takeIf { it.isNotBlank() }
+                            ?: "Publisher",
+                        submissions = mySubmissions,
                         genres = genres,
-                        users = adminUsers,
-                        subscriptionPlans = subscriptionPlans,
-                        userSubscriptions = adminUserSubscriptions,
-                        isSavingCatalog = isSavingCatalog,
-                        isLoadingSeriesSeasons = isLoadingSeriesStructure,
-                        loadedSeriesSeasons = editingSeriesSeasons,
-                        adminErrorMessage = (catalogState as? com.example.data.model.UiState.Error)?.message,
-                        mediaUploadStates = mediaUploadStates,
-                        homepageSettings = homepageSettings,
-                        homepageRowRules = homepageRowRules,
-                        onUploadMedia = { fieldKey, uri, category, folderHint, onUploaded ->
-                            viewModel.uploadMediaFile(fieldKey, uri, category, folderHint) { url, _, _ ->
-                                onUploaded(url)
-                            }
-                        },
-                        onClearUploadState = viewModel::clearMediaUploadState,
+                        isSaving = isSavingCatalog,
                         onBack = {
                             if (navController.previousBackStackEntry != null) {
                                 navController.popBackStack()
                             }
                         },
-                        onSeedCatalog = viewModel::seedCatalogNow,
-                        onSyncSubscriptionSchemas = viewModel::syncSubscriptionSchemasNow,
-                        onPrepareSeriesEditor = viewModel::prepareSeriesEditor,
-                        onSaveCatalogItem = viewModel::saveCatalogItem,
-                        onSaveSeriesWithSeasons = viewModel::saveSeriesWithSeasons,
-                        onDeleteCatalogItem = viewModel::deleteCatalogItem,
-                        onAddSeason = viewModel::addSeason,
-                        onAddEpisode = viewModel::addEpisode,
-                        onSaveGenre = viewModel::saveGenre,
-                        onDeleteGenre = viewModel::deleteGenre,
-                        onSaveHomepageSettings = viewModel::saveHomepageSettings,
-                        onSaveHomepageRowRules = viewModel::saveHomepageRowRules,
-                        onResetHomepageLayout = viewModel::resetHomepageLayout,
-                        onToggleUserAdmin = viewModel::setUserAdminRole
+                        onSubmitContent = viewModel::submitPublisherContent,
+                        onSubmitRevision = viewModel::submitApprovedContentRevision
+                    )
+                }
+
+                composable<VeloraRoute.Admin> {
+                    AdminDashboardRoute(
+                        viewModel = viewModel,
+                        onBack = {
+                            if (navController.previousBackStackEntry != null) {
+                                navController.popBackStack()
+                            }
+                        }
                     )
                 }
 
@@ -792,3 +760,91 @@ private fun AuthenticatedVeloraApp(
         }
     }
 }
+
+@Composable
+private fun AdminDashboardRoute(
+    viewModel: VeloraViewModel,
+    onBack: () -> Unit
+) {
+    val isAdmin by viewModel.isAdmin.collectAsStateWithLifecycle()
+    val effectiveRole by viewModel.effectiveRole.collectAsStateWithLifecycle()
+    val rawCatalog by viewModel.rawCatalog.collectAsStateWithLifecycle()
+    val genres by viewModel.genres.collectAsStateWithLifecycle()
+    val adminUsers by viewModel.adminUsers.collectAsStateWithLifecycle()
+    val subscriptionPlans by viewModel.subscriptionPlans.collectAsStateWithLifecycle()
+    val adminUserSubscriptions by viewModel.adminUserSubscriptions.collectAsStateWithLifecycle()
+    val allSubmissions by viewModel.allSubmissions.collectAsStateWithLifecycle()
+    val allPublisherApplications by viewModel.allPublisherApplications.collectAsStateWithLifecycle()
+    val platformSettings by viewModel.platformSettings.collectAsStateWithLifecycle()
+    val auditLogs by viewModel.auditLogs.collectAsStateWithLifecycle()
+    val isSavingCatalog by viewModel.isSavingCatalog.collectAsStateWithLifecycle()
+    val isLoadingSeriesStructure by viewModel.isLoadingSeriesStructure.collectAsStateWithLifecycle()
+    val editingSeriesSeasons by viewModel.editingSeriesSeasons.collectAsStateWithLifecycle()
+    val catalogState by viewModel.rawCatalogState.collectAsStateWithLifecycle()
+    val mediaUploadStates by viewModel.mediaUploadStates.collectAsStateWithLifecycle()
+    val homepageSettings by viewModel.homepageSettings.collectAsStateWithLifecycle()
+    val homepageRowRules by viewModel.homepageRowRules.collectAsStateWithLifecycle()
+
+    val actions = remember(viewModel) {
+        AdminDashboardActions(
+            onUploadMedia = { fieldKey, uri, category, folderHint, onUploaded ->
+                viewModel.uploadMediaFile(fieldKey, uri, category, folderHint) { url, _, _ ->
+                    onUploaded(url)
+                }
+            },
+            onClearUploadState = viewModel::clearMediaUploadState,
+            onSeedCatalog = viewModel::seedCatalogNow,
+            onSyncSubscriptionSchemas = viewModel::syncSubscriptionSchemasNow,
+            onPrepareSeriesEditor = viewModel::prepareSeriesEditor,
+            onSaveCatalogItem = viewModel::saveCatalogItem,
+            onSaveSeriesWithSeasons = viewModel::saveSeriesWithSeasons,
+            onDeleteCatalogItem = viewModel::deleteCatalogItem,
+            onAddSeason = viewModel::addSeason,
+            onAddEpisode = viewModel::addEpisode,
+            onSaveGenre = viewModel::saveGenre,
+            onDeleteGenre = viewModel::deleteGenre,
+            onSaveHomepageSettings = viewModel::saveHomepageSettings,
+            onSaveHomepageRowRules = viewModel::saveHomepageRowRules,
+            onResetHomepageLayout = viewModel::resetHomepageLayout,
+            onAssignUserRole = viewModel::assignUserRole,
+            onToggleUserSuspended = viewModel::setUserSuspended,
+            onReviewPublisherApplication = viewModel::reviewPublisherApplication,
+            onUpdatePublisherStatus = viewModel::updatePublisherStatus,
+            observeReviewHistory = viewModel::observeReviewHistory,
+            onReviewSubmission = viewModel::reviewContentSubmission,
+            onSaveSubscriptionPlan = viewModel::saveSubscriptionPlan,
+            onArchiveSubscriptionPlan = viewModel::archiveSubscriptionPlan,
+            onAssignUserSubscription = viewModel::assignUserSubscription,
+            onUpdateUserSubscriptionStatus = viewModel::updateUserSubscriptionStatus,
+            onToggleFreeAccess = viewModel::setFreeAccessEnabled
+        )
+    }
+
+    val state = AdminDashboardState(
+        isAdmin = isAdmin,
+        actorRole = effectiveRole,
+        catalog = rawCatalog,
+        genres = genres,
+        users = adminUsers,
+        subscriptionPlans = subscriptionPlans,
+        userSubscriptions = adminUserSubscriptions,
+        submissions = allSubmissions,
+        publisherApplications = allPublisherApplications,
+        platformSettings = platformSettings,
+        auditLogs = auditLogs,
+        isSavingCatalog = isSavingCatalog,
+        isLoadingSeriesSeasons = isLoadingSeriesStructure,
+        loadedSeriesSeasons = editingSeriesSeasons,
+        adminErrorMessage = (catalogState as? com.example.data.model.UiState.Error)?.message,
+        mediaUploadStates = mediaUploadStates,
+        homepageSettings = homepageSettings,
+        homepageRowRules = homepageRowRules
+    )
+
+    AdminDashboardScreen(
+        state = state,
+        actions = actions,
+        onBack = onBack
+    )
+}
+

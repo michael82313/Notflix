@@ -57,13 +57,20 @@ fun YouTubeEmbedPlayer(
 
     var playerReady by remember(videoId, reloadToken) { mutableStateOf(false) }
 
+    val appId = remember(context) { context.packageName }
+    val appOrigin = remember(appId) { "https://$appId" }
+    val appBaseUrl = remember(appOrigin) { "$appOrigin/" }
+
     // Safety timeout if YouTube IFrame fails to become ready (e.g. blocked/offline)
     LaunchedEffect(videoId, reloadToken) {
         delay(16_000L)
         if (!playerReady) {
-            Log.w("YouTubeEmbedPlayer", "Playback timeout: YouTube IFrame player did not signal readiness for videoId=$videoId")
+            Log.w(
+                "YouTubeEmbedPlayer",
+                "Playback timeout: YouTube IFrame player did not signal readiness (videoId=$videoId, origin=$appOrigin, baseUrl=$appBaseUrl)"
+            )
             latestOnError(
-                "YouTube player timed out while loading video '$videoId'. Verify network connectivity and confirm embedding is permitted for this video."
+                "YouTube player timed out while loading video '$videoId'. Check network connectivity or open the video on YouTube."
             )
         }
     }
@@ -96,7 +103,10 @@ fun YouTubeEmbedPlayer(
                 @JavascriptInterface
                 fun onPlayerReady(durationSeconds: Double) {
                     mainHandler.post {
-                        Log.i("YouTubeEmbedPlayer", "YouTube player ready for videoId=$videoId, duration=$durationSeconds s")
+                        Log.i(
+                            "YouTubeEmbedPlayer",
+                            "IFrame API onReady: videoId=$videoId, duration=${durationSeconds}s, origin=$appOrigin"
+                        )
                         playerReady = true
                         latestOnReady((durationSeconds * 1000.0).toLong().coerceAtLeast(0L))
                     }
@@ -128,14 +138,17 @@ fun YouTubeEmbedPlayer(
                 fun onPlayerError(code: Int) {
                     mainHandler.post {
                         playerReady = true
-                        Log.e("YouTubeEmbedPlayer", "YouTube IFrame Player Error Code: $code for videoId=$videoId")
+                        Log.e(
+                            "YouTubeEmbedPlayer",
+                            "IFrame API onError: code=$code, videoId=$videoId, origin=$appOrigin, baseUrl=$appBaseUrl"
+                        )
                         val diagnosis = when (code) {
-                            2 -> "Error 2: The request contains an invalid parameter value (e.g. invalid video ID '$videoId')."
-                            5 -> "Error 5: The requested content cannot be played in an HTML5 player or is restricted."
-                            100 -> "Error 100: The video requested was not found. It might have been deleted or marked private."
-                            101, 150 -> "Error $code: The owner of this YouTube video has requested that it not be played in embedded players (Embedding disabled by video owner)."
-                            152, 153 -> "Error $code: YouTube embedder identity or Referer validation failed for application ID 'com.aistudio.velora.kxmpzq'."
-                            else -> "YouTube Player Error $code. Playback unavailable or restricted for video ID '$videoId'."
+                            2 -> "YouTube Error 2: Invalid video parameter or malformed video ID '$videoId'."
+                            5 -> "YouTube Error 5: This video could not be played in the HTML5 player on this device."
+                            100 -> "YouTube Error 100: Video not found. It may have been removed or set to private."
+                            101, 150 -> "YouTube Error $code: Embedded playback was blocked by YouTube. This can happen when YouTube requires bot verification (\"Sign in to confirm you're not a bot\" on unsigned devices or cloud preview networks), due to age/region restrictions, or if embedding is disabled."
+                            152, 153 -> "YouTube Error $code: Embedder identity or HTTP Referer validation failed for '$appOrigin'."
+                            else -> "YouTube Player Error $code: Playback unavailable for video ID '$videoId'."
                         }
                         latestOnError(diagnosis)
                     }
@@ -173,7 +186,7 @@ fun YouTubeEmbedPlayer(
                     if (request?.isForMainFrame == true) {
                         playerReady = true
                         val errDesc = error?.description?.toString() ?: "Unknown WebView error"
-                        Log.e("YouTubeEmbedPlayer", "WebView main frame error: $errDesc")
+                        Log.e("YouTubeEmbedPlayer", "WebView main frame error: $errDesc (url=${request.url})")
                         latestOnError("WebView connection error: $errDesc")
                     }
                 }
@@ -186,7 +199,7 @@ fun YouTubeEmbedPlayer(
                     if (request?.isForMainFrame == true && (errorResponse?.statusCode ?: 0) >= 400) {
                         playerReady = true
                         val status = errorResponse?.statusCode ?: 0
-                        Log.e("YouTubeEmbedPlayer", "WebView HTTP error $status for videoId=$videoId")
+                        Log.e("YouTubeEmbedPlayer", "WebView HTTP error $status for videoId=$videoId (url=${request.url})")
                         latestOnError("YouTube returned HTTP $status while loading the player.")
                     }
                 }
@@ -212,9 +225,14 @@ fun YouTubeEmbedPlayer(
             }
 
             val startSeconds = (initialPositionMs / 1000L).coerceAtLeast(0L)
-            val html = buildYouTubeIframeHtml(videoId = videoId, startSeconds = startSeconds)
+            val html = buildYouTubeIframeHtml(
+                videoId = videoId,
+                startSeconds = startSeconds,
+                appOrigin = appOrigin,
+                widgetReferrer = appBaseUrl
+            )
             loadDataWithBaseURL(
-                "https://com.aistudio.velora.kxmpzq",
+                appBaseUrl,
                 html,
                 "text/html",
                 "utf-8",
@@ -242,7 +260,12 @@ fun YouTubeEmbedPlayer(
     )
 }
 
-private fun buildYouTubeIframeHtml(videoId: String, startSeconds: Long): String {
+private fun buildYouTubeIframeHtml(
+    videoId: String,
+    startSeconds: Long,
+    appOrigin: String,
+    widgetReferrer: String
+): String {
     val safeVideoId = videoId.replace(Regex("[^a-zA-Z0-9_-]"), "")
     return """
         <!DOCTYPE html>
@@ -294,11 +317,10 @@ private fun buildYouTubeIframeHtml(videoId: String, startSeconds: Long): String 
                     controls: 1,
                     playsinline: 1,
                     rel: 0,
-                    modestbranding: 1,
                     iv_load_policy: 3,
                     enablejsapi: 1,
-                    origin: 'https://com.aistudio.velora.kxmpzq',
-                    widget_referrer: 'https://com.aistudio.velora.kxmpzq',
+                    origin: '$appOrigin',
+                    widget_referrer: '$widgetReferrer',
                     start: $startSeconds
                   },
                   events: {
@@ -306,7 +328,6 @@ private fun buildYouTubeIframeHtml(videoId: String, startSeconds: Long): String 
                       try {
                         var dur = event.target.getDuration() || 0;
                         NotflixYouTubeBridge.onPlayerReady(dur);
-                        event.target.playVideo();
                       } catch (e) {
                         console.error('onReady error:', e);
                       }

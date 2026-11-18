@@ -51,10 +51,12 @@ class AuthRepository(
     private fun requireUser(): FirebaseUser =
         auth.currentUser ?: throw IllegalStateException("User must be signed in.")
 
-    fun isBootstrappedAdmin(user: FirebaseUser? = auth.currentUser): Boolean {
+    fun isBootstrappedOwner(user: FirebaseUser? = auth.currentUser): Boolean {
         if (user == null) return false
         return isBootstrappedAdminEmail(user.email)
     }
+
+    fun isBootstrappedAdmin(user: FirebaseUser? = auth.currentUser): Boolean = isBootstrappedOwner(user)
 
     fun isBootstrappedAdminEmail(email: String?): Boolean {
         if (email.isNullOrBlank()) return false
@@ -68,18 +70,18 @@ class AuthRepository(
         if (snapshot.exists()) {
             val existing = FirestoreDocumentMapper.toUserAccount(snapshot)
             if (existing != null) {
-                if (isBootstrappedAdmin(user)) {
-                    ensureAdminRecord(user)
-                    if (existing.role != "admin") {
+                if (isBootstrappedOwner(user)) {
+                    ensureOwnerRecord(user)
+                    if (existing.role != com.example.data.model.AppRole.OWNER.key) {
                         runCatching {
                             docRef.update(
                                 mapOf(
-                                    "role" to "admin",
+                                    "role" to com.example.data.model.AppRole.OWNER.key,
                                     "updatedAt" to FieldValue.serverTimestamp()
                                 )
                             ).await()
                         }
-                        return@runCatching existing.copy(role = "admin")
+                        return@runCatching existing.copy(role = com.example.data.model.AppRole.OWNER.key)
                     }
                 }
                 return@runCatching existing
@@ -89,7 +91,13 @@ class AuthRepository(
         val resolvedName = user.displayName?.takeIf { it.isNotBlank() }
             ?: user.email?.substringBefore('@')?.takeIf { it.isNotBlank() }
             ?: user.phoneNumber?.takeIf { it.isNotBlank() }
-            ?: "Notflix Member"
+            ?: "Notflix Viewer"
+
+        val initialRole = if (isBootstrappedOwner(user)) {
+            com.example.data.model.AppRole.OWNER.key
+        } else {
+            com.example.data.model.AppRole.VIEWER.key
+        }
 
         val initialAccount = UserAccount(
             id = user.uid,
@@ -98,7 +106,8 @@ class AuthRepository(
             phoneNumber = user.phoneNumber?.takeIf { it.isNotBlank() },
             displayName = resolvedName,
             photoUrl = user.photoUrl?.toString(),
-            role = if (isBootstrappedAdmin(user)) "admin" else "member",
+            role = initialRole,
+            publisherStatus = com.example.data.model.PublisherStatus.NONE.key,
             isSuspended = false,
             languagePreference = "English",
             autoplayNext = true,
@@ -107,10 +116,10 @@ class AuthRepository(
             subtitleSize = "Medium"
         )
         try {
-            docRef.set(initialAccount.toCreateMap()).await()
-            if (isBootstrappedAdmin(user)) {
-                ensureAdminRecord(user)
+            if (isBootstrappedOwner(user)) {
+                ensureOwnerRecord(user)
             }
+            docRef.set(initialAccount.toCreateMap()).await()
             seedWelcomeNotification(user.uid)
         } catch (e: CancellationException) {
             throw e
@@ -121,22 +130,21 @@ class AuthRepository(
         initialAccount
     }
 
-    private suspend fun ensureAdminRecord(user: FirebaseUser) {
-        val adminRef = db.collection("admins").document(user.uid)
+    private suspend fun ensureOwnerRecord(user: FirebaseUser) {
+        val ownerRef = db.collection("owners").document(user.uid)
         try {
-            val snap = adminRef.get().await()
+            val snap = ownerRef.get().await()
             if (!snap.exists()) {
-                adminRef.set(
-                    mapOf(
-                        "uid" to user.uid,
-                        "email" to (user.email ?: BOOTSTRAPPED_ADMIN_EMAIL),
-                        "grantedBy" to "bootstrap",
-                        "createdAt" to FieldValue.serverTimestamp()
-                    )
+                ownerRef.set(
+                    com.example.data.model.OwnerRecord(
+                        uid = user.uid,
+                        email = user.email ?: BOOTSTRAPPED_ADMIN_EMAIL,
+                        establishedBy = "bootstrap"
+                    ).toCreateMap()
                 ).await()
             }
         } catch (e: Exception) {
-            Log.w(TAG, "Admin record sync skipped: ${e.message}")
+            Log.w(TAG, "Owner record sync skipped: ${e.message}")
         }
     }
 
@@ -177,16 +185,45 @@ class AuthRepository(
             }
     }
 
-    fun observeIsAdmin(userId: String): Flow<Boolean> {
-        val adminRef = db.collection("admins").document(userId)
-        return adminRef.snapshots()
+    fun observeIsOwner(userId: String): Flow<Boolean> {
+        val ownerRef = db.collection("owners").document(userId)
+        return ownerRef.snapshots()
             .map { snapshot ->
-                snapshot.exists() || isBootstrappedAdmin(auth.currentUser)
+                snapshot.exists() || isBootstrappedOwner(auth.currentUser)
             }
             .catch { _ ->
-                emit(isBootstrappedAdmin(auth.currentUser))
+                emit(isBootstrappedOwner(auth.currentUser))
             }
     }
+
+    fun observeHasAdminRecord(userId: String): Flow<Boolean> {
+        val adminRef = db.collection("admins").document(userId)
+        return adminRef.snapshots()
+            .map { snapshot -> snapshot.exists() }
+            .catch { _ -> emit(false) }
+    }
+
+    fun observeIsAdmin(userId: String): Flow<Boolean> =
+        kotlinx.coroutines.flow.combine(
+            observeIsOwner(userId),
+            observeHasAdminRecord(userId)
+        ) { owner, adminDoc ->
+            owner || adminDoc
+        }
+
+    fun observeEffectiveRole(userId: String): Flow<com.example.data.model.AppRole> =
+        kotlinx.coroutines.flow.combine(
+            observeUserAccount(userId).catch { emit(null) },
+            observeIsOwner(userId),
+            observeHasAdminRecord(userId)
+        ) { account, ownerDoc, adminDoc ->
+            com.example.data.model.RoleGovernance.resolveEffectiveRole(
+                accountRole = account?.role,
+                hasOwnerRecord = ownerDoc,
+                hasAdminRecord = adminDoc,
+                isBootstrappedOwner = isBootstrappedOwner(auth.currentUser)
+            )
+        }
 
     suspend fun updatePreferences(
         userId: String,

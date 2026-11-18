@@ -1,13 +1,22 @@
 package com.example.data.remote
 
 import android.util.Log
+import com.example.data.model.AuditLogEntry
 import com.example.data.model.CatalogItem
+import com.example.data.model.ContentReviewDecision
+import com.example.data.model.ContentReviewStatus
+import com.example.data.model.ContentSubmission
 import com.example.data.model.Episode
 import com.example.data.model.Genre
 import com.example.data.model.HomepageRowRule
 import com.example.data.model.HomepageSettings
 import com.example.data.model.PlanFeature
+import com.example.data.model.PlatformSettings
+import com.example.data.model.PublisherApplication
+import com.example.data.model.PublisherStatus
 import com.example.data.model.Season
+import com.example.data.model.SubmissionEpisodeDraft
+import com.example.data.model.SubmissionSeasonDraft
 import com.example.data.model.SubscriptionPlan
 import com.example.data.model.UserAccount
 import com.example.data.model.UserProfile
@@ -39,7 +48,10 @@ object FirestoreDocumentMapper {
         phoneNumber = data.optStr("phoneNumber"),
         displayName = data.str("displayName", ""),
         photoUrl = data.optStr("photoUrl"),
-        role = data.str("role", "member"),
+        role = data.str("role", "viewer"),
+        publisherStatus = data.str("publisherStatus", PublisherStatus.NONE.key),
+        publisherName = data.optStr("publisherName"),
+        publisherAppliedAt = data.ts("publisherAppliedAt"),
         isSuspended = data.bool("isSuspended", false),
         languagePreference = data.str("languagePreference", "English"),
         autoplayNext = data.bool("autoplayNext", true),
@@ -119,6 +131,10 @@ object FirestoreDocumentMapper {
         isComingSoon = data.bool("isComingSoon", false),
         expectedReleaseDate = data.optStr("expectedReleaseDate"),
         leavingSoonAt = data.optStr("leavingSoonAt"),
+        publisherUid = data.optStr("publisherUid"),
+        publisherName = data.optStr("publisherName"),
+        sourceSubmissionId = data.optStr("sourceSubmissionId"),
+        contentCategory = data.optStr("contentCategory"),
         createdAt = data.ts("createdAt"),
         updatedAt = data.ts("updatedAt")
     )
@@ -212,23 +228,30 @@ object FirestoreDocumentMapper {
         return toSubscriptionPlan(doc.id, data)
     }
 
-    fun toSubscriptionPlan(id: String, data: Map<String, Any?>): SubscriptionPlan = SubscriptionPlan(
-        id = id,
-        tierCode = data.str("tierCode", id.ifBlank { "free" }),
-        name = data.str("name", "Free"),
-        description = data.str("description", ""),
-        isPermanentFree = data.bool("isPermanentFree", false),
-        isActive = data.bool("isActive", false),
-        monthlyPriceCents = data.int("monthlyPriceCents", 0),
-        yearlyPriceCents = data.int("yearlyPriceCents", 0),
-        maxQuality = data.str("maxQuality", "Auto"),
-        maxSimultaneousStreams = data.int("maxSimultaneousStreams", 4),
-        maxProfiles = data.int("maxProfiles", 5),
-        featuresSummary = data.strList("featuresSummary"),
-        displayOrder = data.int("displayOrder", 0),
-        createdAt = data.ts("createdAt"),
-        updatedAt = data.ts("updatedAt")
-    )
+    fun toSubscriptionPlan(id: String, data: Map<String, Any?>): SubscriptionPlan {
+        val isPermFree = data.bool("isPermanentFree", false)
+        val active = data.bool("isActive", false)
+        return SubscriptionPlan(
+            id = id,
+            tierCode = data.str("tierCode", id.ifBlank { "free" }),
+            name = data.str("name", "Free"),
+            description = data.str("description", ""),
+            isPermanentFree = isPermFree,
+            isActive = active,
+            isPublic = data.bool("isPublic", isPermFree || active),
+            isArchived = data.bool("isArchived", false),
+            billingInterval = data.str("billingInterval", if (isPermFree) "free" else "monthly"),
+            monthlyPriceCents = data.int("monthlyPriceCents", 0),
+            yearlyPriceCents = data.int("yearlyPriceCents", 0),
+            maxQuality = data.str("maxQuality", "Auto"),
+            maxSimultaneousStreams = data.int("maxSimultaneousStreams", 4),
+            maxProfiles = data.int("maxProfiles", 5),
+            featuresSummary = data.strList("featuresSummary"),
+            displayOrder = data.int("displayOrder", 0),
+            createdAt = data.ts("createdAt"),
+            updatedAt = data.ts("updatedAt")
+        )
+    }
 
     fun toSubscriptionPlans(snapshot: QuerySnapshot): List<SubscriptionPlan> =
         snapshot.documents.mapNotNull { doc ->
@@ -319,6 +342,171 @@ object FirestoreDocumentMapper {
         snapshot.documents.mapNotNull { doc ->
             runCatching { toHomepageRowRule(doc) }
                 .onFailure { Log.w(TAG, "Skipping malformed homepage row rule ${doc.id}", it) }
+                .getOrNull()
+        }
+
+    fun toPublisherApplication(doc: DocumentSnapshot): PublisherApplication? {
+        val data = doc.safeData() ?: return null
+        return toPublisherApplication(doc.id, data)
+    }
+
+    fun toPublisherApplication(id: String, data: Map<String, Any?>): PublisherApplication = PublisherApplication(
+        id = id,
+        userId = data.str("userId", id),
+        publisherName = data.str("publisherName", ""),
+        contactEmail = data.str("contactEmail", ""),
+        organizationDescription = data.str("organizationDescription", ""),
+        intendedContentDetails = data.str("intendedContentDetails", ""),
+        status = data.str("status", PublisherStatus.NONE.key),
+        reviewerNotes = data.str("reviewerNotes", ""),
+        reviewedByUid = data.optStr("reviewedByUid"),
+        submittedAt = data.ts("submittedAt"),
+        updatedAt = data.ts("updatedAt")
+    )
+
+    fun toPublisherApplications(snapshot: QuerySnapshot): List<PublisherApplication> =
+        snapshot.documents.mapNotNull { doc ->
+            runCatching { toPublisherApplication(doc) }
+                .onFailure { Log.w(TAG, "Skipping malformed publisher application ${doc.id}", it) }
+                .getOrNull()
+        }
+
+    fun toContentSubmission(doc: DocumentSnapshot): ContentSubmission? {
+        val data = doc.safeData() ?: return null
+        return toContentSubmission(doc.id, data)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    fun toContentSubmission(id: String, data: Map<String, Any?>): ContentSubmission {
+        val rawSeasons = (data["seasons"] as? List<*>)?.mapNotNull { seasonAny ->
+            val sm = seasonAny as? Map<String, Any?> ?: return@mapNotNull null
+            val sNum = sm.int("seasonNumber", 1).coerceAtLeast(1)
+            val eps = (sm["episodes"] as? List<*>)?.mapNotNull { epAny ->
+                val em = epAny as? Map<String, Any?> ?: return@mapNotNull null
+                SubmissionEpisodeDraft(
+                    seasonNumber = em.int("seasonNumber", sNum).coerceAtLeast(1),
+                    episodeNumber = em.int("episodeNumber", 1).coerceAtLeast(1),
+                    title = em.str("title", ""),
+                    synopsis = em.str("synopsis", ""),
+                    runtimeMinutes = em.int("runtimeMinutes", 42),
+                    thumbnailUrl = em.optStr("thumbnailUrl"),
+                    videoUrl = em.str("videoUrl", ""),
+                    videoSourceType = em.str("videoSourceType", "auto"),
+                    providerName = em.optStr("providerName")
+                )
+            }.orEmpty()
+            SubmissionSeasonDraft(
+                seasonNumber = sNum,
+                title = sm.str("title", "Season $sNum"),
+                year = sm.int("year", 2025),
+                episodes = eps
+            )
+        }.orEmpty()
+
+        return ContentSubmission(
+            id = id,
+            publisherUid = data.str("publisherUid", ""),
+            publisherName = data.str("publisherName", "Publisher"),
+            mediaType = data.str("mediaType", "movie").ifBlank { "movie" },
+            title = data.str("title", "Untitled Submission"),
+            synopsis = data.str("synopsis", ""),
+            genres = data.strList("genres"),
+            releaseYear = data.int("releaseYear", 2025),
+            runtimeMinutes = data.int("runtimeMinutes", 90),
+            ageRating = data.str("ageRating", "PG-13").ifBlank { "PG-13" },
+            directorOrCreator = data.str("directorOrCreator", ""),
+            cast = data.strList("cast"),
+            posterKey = data.str("posterKey", "img_poster_chronicle"),
+            posterUrl = data.optStr("posterUrl"),
+            backdropKey = data.str("backdropKey", "img_hero_nebula"),
+            backdropUrl = data.optStr("backdropUrl"),
+            trailerUrl = data.optStr("trailerUrl"),
+            videoUrl = data.str("videoUrl", ""),
+            videoSourceType = data.str("videoSourceType", "auto"),
+            providerName = data.optStr("providerName"),
+            hlsUrl = data.optStr("hlsUrl"),
+            isKidsFriendly = data.bool("isKidsFriendly", false),
+            tags = data.strList("tags"),
+            seasons = rawSeasons,
+            distributionAuthorized = data.bool("distributionAuthorized", false),
+            distributionRightsStatement = data.str("distributionRightsStatement", ""),
+            reviewStatus = data.str("reviewStatus", ContentReviewStatus.PENDING_REVIEW.key),
+            privateReviewerNotes = data.str("privateReviewerNotes", ""),
+            lastReviewedByUid = data.optStr("lastReviewedByUid"),
+            lastReviewedAt = data.ts("lastReviewedAt"),
+            publishedCatalogId = data.optStr("publishedCatalogId"),
+            isRevision = data.bool("isRevision", false),
+            revisionNumber = data.int("revisionNumber", 1).coerceAtLeast(1),
+            createdAt = data.ts("createdAt"),
+            updatedAt = data.ts("updatedAt")
+        )
+    }
+
+    fun toContentSubmissions(snapshot: QuerySnapshot): List<ContentSubmission> =
+        snapshot.documents.mapNotNull { doc ->
+            runCatching { toContentSubmission(doc) }
+                .onFailure { Log.w(TAG, "Skipping malformed content submission ${doc.id}", it) }
+                .getOrNull()
+        }
+
+    fun toContentReviewDecision(doc: DocumentSnapshot): ContentReviewDecision? {
+        val data = doc.safeData() ?: return null
+        return ContentReviewDecision(
+            id = doc.id,
+            submissionId = data.str("submissionId", ""),
+            reviewerUid = data.str("reviewerUid", ""),
+            reviewerRole = data.str("reviewerRole", "admin"),
+            decision = data.str("decision", ContentReviewStatus.UNDER_REVIEW.key),
+            notes = data.str("notes", ""),
+            videoSourceVerified = data.bool("videoSourceVerified", false),
+            rightsConfirmed = data.bool("rightsConfirmed", false),
+            metadataVerified = data.bool("metadataVerified", false),
+            createdAt = data.ts("createdAt")
+        )
+    }
+
+    fun toContentReviewDecisions(snapshot: QuerySnapshot): List<ContentReviewDecision> =
+        snapshot.documents.mapNotNull { doc ->
+            runCatching { toContentReviewDecision(doc) }
+                .onFailure { Log.w(TAG, "Skipping malformed review decision ${doc.id}", it) }
+                .getOrNull()
+        }
+
+    fun toPlatformSettings(doc: DocumentSnapshot): PlatformSettings? {
+        val data = doc.safeData() ?: return null
+        return PlatformSettings(
+            id = doc.id.ifBlank { "global" },
+            freeAccessEnabled = data.bool("freeAccessEnabled", true),
+            freeAccessNotice = data.str(
+                "freeAccessNotice",
+                "Platform-wide Free Access is currently enabled. Existing subscription records are preserved."
+            ),
+            updatedByUid = data.str("updatedByUid", "system"),
+            updatedAt = data.ts("updatedAt")
+        )
+    }
+
+    fun toAuditLogEntry(doc: DocumentSnapshot): AuditLogEntry? {
+        val data = doc.safeData() ?: return null
+        return AuditLogEntry(
+            id = doc.id,
+            actorUid = data.str("actorUid", ""),
+            actorRole = data.str("actorRole", "admin"),
+            action = data.str("action", ""),
+            targetUid = data.optStr("targetUid"),
+            targetContentId = data.optStr("targetContentId"),
+            targetSubscriptionId = data.optStr("targetSubscriptionId"),
+            previousValue = data.str("previousValue", ""),
+            newValue = data.str("newValue", ""),
+            details = data.str("details", ""),
+            createdAt = data.ts("createdAt")
+        )
+    }
+
+    fun toAuditLogEntries(snapshot: QuerySnapshot): List<AuditLogEntry> =
+        snapshot.documents.mapNotNull { doc ->
+            runCatching { toAuditLogEntry(doc) }
+                .onFailure { Log.w(TAG, "Skipping malformed audit log ${doc.id}", it) }
                 .getOrNull()
         }
 

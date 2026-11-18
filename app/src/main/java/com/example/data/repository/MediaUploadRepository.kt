@@ -50,11 +50,12 @@ class MediaUploadRepository(
     fun uploadMedia(
         uri: Uri,
         category: MediaAssetCategory,
-        contentFolderHint: String
+        contentFolderHint: String,
+        isPublisherSubmission: Boolean = false
     ): Flow<MediaUploadState> = callbackFlow {
         val currentUser = auth.currentUser
         if (currentUser == null) {
-            trySend(MediaUploadState.Error("You must be signed in as an administrator to upload media."))
+            trySend(MediaUploadState.Error("You must be signed in to upload media."))
             close()
             return@callbackFlow
         }
@@ -69,7 +70,11 @@ class MediaUploadRepository(
             .ifBlank { "catalog-item" }
             .take(48)
 
-        val storagePath = "catalog/$folderSlug/${category.folder}/${System.currentTimeMillis()}_$sanitizedFileName"
+        val storagePath = if (isPublisherSubmission) {
+            "submissions/${currentUser.uid}/$folderSlug/${category.folder}/${System.currentTimeMillis()}_$sanitizedFileName"
+        } else {
+            "catalog/$folderSlug/${category.folder}/${System.currentTimeMillis()}_$sanitizedFileName"
+        }
         val ref = storage.reference.child(storagePath)
 
         val metadata = StorageMetadata.Builder()

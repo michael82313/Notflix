@@ -24,20 +24,64 @@ service cloud.firestore {
       return request.auth != null;
     }
 
-    function isOwner(userId) {
+    function isAccountOwner(userId) {
       return isSignedIn() && request.auth.uid == userId;
     }
 
-    function isBootstrappedAdmin() {
+    // One-time Owner bootstrap check used only to anchor the trusted /owners/{uid} record
+    // and maintain uninterrupted access for the existing Owner account.
+    function isBootstrappedOwner() {
       return isSignedIn() &&
              ('email' in request.auth.token) &&
              request.auth.token.email.lower() == 'michael.tollackson82313@gmail.com';
     }
 
+    // Trusted Platform Owner check (custom claim OR immutable /owners/{uid} record OR bootstrap)
+    function isPlatformOwner() {
+      return isSignedIn() && (
+        request.auth.token.get('role', '') == 'owner' ||
+        exists(/databases/$(database)/documents/owners/$(request.auth.uid)) ||
+        isBootstrappedOwner()
+      );
+    }
+
+    // Admin OR Owner check
     function isAdmin() {
       return isSignedIn() && (
-        isBootstrappedAdmin() ||
+        isPlatformOwner() ||
+        request.auth.token.get('role', '') == 'admin' ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // Non-owner Admin only
+    function isAdminOnly() {
+      return isAdmin() && !isPlatformOwner();
+    }
+
+    function isTargetPlatformOwner(userId) {
+      return exists(/databases/$(database)/documents/owners/$(userId)) ||
+             (exists(/databases/$(database)/documents/users/$(userId)) &&
+              get(/databases/$(database)/documents/users/$(userId)).data.get('role', '') == 'owner');
+    }
+
+    function isTargetAdmin(userId) {
+      return exists(/databases/$(database)/documents/admins/$(userId)) ||
+             (exists(/databases/$(database)/documents/users/$(userId)) &&
+              get(/databases/$(database)/documents/users/$(userId)).data.get('role', '') == 'admin');
+    }
+
+    function isActivePublisherData(data) {
+      return data.get('role', '') == 'publisher' &&
+             data.get('publisherStatus', 'approved') == 'approved' &&
+             data.get('isSuspended', false) == false;
+    }
+
+    function isApprovedPublisher() {
+      return isSignedIn() && (
+        isAdmin() ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         isActivePublisherData(get(/databases/$(database)/documents/users/$(request.auth.uid)).data))
       );
     }
 
@@ -52,7 +96,10 @@ service cloud.firestore {
              (!('phoneNumber' in data) || data.phoneNumber == null || (data.phoneNumber is string && data.phoneNumber.size() <= 40)) &&
              data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 100 &&
              (!('photoUrl' in data) || data.photoUrl == null || (data.photoUrl is string && data.photoUrl.size() <= 1000)) &&
-             data.role in ['member', 'admin'] &&
+             data.role in ['viewer', 'member', 'publisher', 'admin', 'owner'] &&
+             (!('publisherStatus' in data) || data.publisherStatus in ['none', 'pending', 'under_review', 'approved', 'rejected', 'suspended', 'revoked']) &&
+             (!('publisherName' in data) || data.publisherName == null || (data.publisherName is string && data.publisherName.size() <= 120)) &&
+             (!('publisherAppliedAt' in data) || data.publisherAppliedAt == null || data.publisherAppliedAt is timestamp) &&
              (!('isSuspended' in data) || data.isSuspended is bool) &&
              data.languagePreference is string && data.languagePreference.size() >= 1 && data.languagePreference.size() <= 40 &&
              data.autoplayNext is bool &&
@@ -61,6 +108,13 @@ service cloud.firestore {
              data.subtitleSize in ['Small', 'Medium', 'Large'] &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidOwnerRecord(data) {
+      return data.uid is string && data.uid.size() >= 1 && data.uid.size() <= 128 &&
+             data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+             data.establishedBy is string && data.establishedBy.size() >= 1 && data.establishedBy.size() <= 128 &&
+             isValidTimestamp(data.createdAt);
     }
 
     function isValidAdminRecord(data) {
@@ -156,6 +210,10 @@ service cloud.firestore {
              (!('isComingSoon' in data) || data.isComingSoon is bool) &&
              (!('expectedReleaseDate' in data) || data.expectedReleaseDate == null || (data.expectedReleaseDate is string && data.expectedReleaseDate.size() <= 60)) &&
              (!('leavingSoonAt' in data) || data.leavingSoonAt == null || (data.leavingSoonAt is string && data.leavingSoonAt.size() <= 60)) &&
+             (!('publisherUid' in data) || data.publisherUid == null || (data.publisherUid is string && data.publisherUid.size() <= 128)) &&
+             (!('publisherName' in data) || data.publisherName == null || (data.publisherName is string && data.publisherName.size() <= 120)) &&
+             (!('sourceSubmissionId' in data) || data.sourceSubmissionId == null || (data.sourceSubmissionId is string && data.sourceSubmissionId.size() <= 128)) &&
+             (!('contentCategory' in data) || data.contentCategory == null || (data.contentCategory is string && data.contentCategory.size() <= 40)) &&
              isValidTimestamp(data.createdAt) &&
              isValidTimestamp(data.updatedAt);
     }
@@ -196,11 +254,14 @@ service cloud.firestore {
     }
 
     function isValidSubscriptionPlan(data) {
-      return data.tierCode in ['free', 'standard', 'premium', 'ultimate'] &&
+      return data.tierCode is string && data.tierCode.size() >= 1 && data.tierCode.size() <= 40 &&
              data.name is string && data.name.size() >= 1 && data.name.size() <= 60 &&
              data.description is string && data.description.size() >= 1 && data.description.size() <= 500 &&
              data.isPermanentFree is bool &&
              data.isActive is bool &&
+             (!('isPublic' in data) || data.isPublic is bool) &&
+             (!('isArchived' in data) || data.isArchived is bool) &&
+             (!('billingInterval' in data) || data.billingInterval in ['free', 'monthly', 'yearly', 'custom']) &&
              data.monthlyPriceCents is int && data.monthlyPriceCents >= 0 && data.monthlyPriceCents <= 1000000 &&
              data.yearlyPriceCents is int && data.yearlyPriceCents >= 0 && data.yearlyPriceCents <= 10000000 &&
              data.maxQuality in ['Auto', '480p', '720p', '1080p', '4K'] &&
@@ -225,7 +286,7 @@ service cloud.firestore {
 
     function isValidUserSubscription(data) {
       return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
-             data.planId in ['free', 'standard', 'premium', 'ultimate'] &&
+             data.planId is string && data.planId.size() >= 1 && data.planId.size() <= 64 &&
              data.planName is string && data.planName.size() >= 1 && data.planName.size() <= 60 &&
              data.status in ['active', 'paused', 'expired', 'canceled'] &&
              data.isPermanentFree is bool &&
@@ -254,165 +315,406 @@ service cloud.firestore {
              isValidTimestamp(data.updatedAt);
     }
 
-    // --- Collection Rules ---
-
-    match /users/{userId} {
-      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
-      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
-
-      allow create: if isValidId(userId) &&
-                       isOwner(userId) &&
-                       incoming().userId == request.auth.uid &&
-                       (incoming().role == 'member' || isAdmin()) &&
-                       (!('isSuspended' in incoming()) || incoming().isSuspended == false) &&
-                       incoming().keys().hasAll(['userId', 'email', 'displayName', 'role', 'languagePreference', 'autoplayNext', 'defaultQuality', 'subtitlesEnabled', 'subtitleSize', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['userId', 'email', 'phoneNumber', 'displayName', 'photoUrl', 'role', 'isSuspended', 'languagePreference', 'autoplayNext', 'defaultQuality', 'subtitlesEnabled', 'subtitleSize', 'createdAt', 'updatedAt']) &&
-                       isValidUserAccount(incoming());
-
-      allow update: if isValidId(userId) &&
-                       isValidUserAccount(incoming()) &&
-                       incoming().userId == existing().userId &&
-                       incoming().createdAt == existing().createdAt && (
-                         (isAdmin() &&
-                          incoming().diff(existing()).affectedKeys().hasOnly(['role', 'isSuspended', 'updatedAt'])) ||
-                         (isOwner(userId) &&
-                          incoming().role == existing().role &&
-                          (!('isSuspended' in incoming()) || incoming().isSuspended == existing().get('isSuspended', false)) &&
-                          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'phoneNumber', 'photoUrl', 'languagePreference', 'autoplayNext', 'defaultQuality', 'subtitlesEnabled', 'subtitleSize', 'updatedAt']))
-                       );
-
-      allow delete: if isValidId(userId) && (isOwner(userId) || isAdmin());
-
-      match /profiles/{profileId} {
-        allow get: if isValidId(userId) && isValidId(profileId) && (isOwner(userId) || isAdmin());
-        allow list: if isValidId(userId) && (isOwner(userId) || isAdmin());
-
-        allow create: if isValidId(userId) && isValidId(profileId) &&
-                         (isOwner(userId) || isAdmin()) &&
-                         incoming().userId == userId &&
-                         incoming().keys().hasAll(['userId', 'name', 'avatarKey', 'isKids', 'preferredGenres', 'language', 'subtitlesEnabled', 'createdAt', 'updatedAt']) &&
-                         incoming().keys().hasOnly(['userId', 'name', 'avatarKey', 'isKids', 'preferredGenres', 'language', 'subtitlesEnabled', 'createdAt', 'updatedAt']) &&
-                         isValidUserProfile(incoming());
-
-        allow update: if isValidId(userId) && isValidId(profileId) &&
-                         (isOwner(userId) || isAdmin()) &&
-                         isValidUserProfile(incoming()) &&
-                         incoming().userId == existing().userId &&
-                         incoming().createdAt == existing().createdAt &&
-                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatarKey', 'isKids', 'preferredGenres', 'language', 'subtitlesEnabled', 'updatedAt']);
-
-        allow delete: if isValidId(userId) && isValidId(profileId) && (isOwner(userId) || isAdmin());
-
-        match /watchlist/{contentId} {
-          allow get: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) && isOwner(userId);
-          allow list: if isValidId(userId) && isValidId(profileId) && isOwner(userId);
-
-          allow create: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) &&
-                           isOwner(userId) &&
-                           incoming().contentId == contentId &&
-                           incoming().keys().hasAll(['contentId', 'mediaType', 'title', 'addedAt']) &&
-                           incoming().keys().hasOnly(['contentId', 'mediaType', 'title', 'addedAt']) &&
-                           isValidWatchlistItem(incoming());
-
-          allow update: if false;
-          allow delete: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) && isOwner(userId);
-        }
-
-        match /progress/{progressId} {
-          allow get: if isValidId(userId) && isValidId(profileId) && isValidId(progressId) && isOwner(userId);
-          allow list: if isValidId(userId) && isValidId(profileId) && isOwner(userId);
-
-          allow create: if isValidId(userId) && isValidId(profileId) && isValidId(progressId) &&
-                           isOwner(userId) &&
-                           incoming().keys().hasAll(['contentId', 'title', 'positionMs', 'durationMs', 'completed', 'updatedAt']) &&
-                           incoming().keys().hasOnly(['contentId', 'episodeId', 'seasonNumber', 'episodeNumber', 'title', 'positionMs', 'durationMs', 'completed', 'updatedAt']) &&
-                           isValidPlaybackProgress(incoming());
-
-          allow update: if isValidId(userId) && isValidId(profileId) && isValidId(progressId) &&
-                           isOwner(userId) &&
-                           isValidPlaybackProgress(incoming()) &&
-                           incoming().contentId == existing().contentId &&
-                           incoming().diff(existing()).affectedKeys().hasOnly(['episodeId', 'seasonNumber', 'episodeNumber', 'title', 'positionMs', 'durationMs', 'completed', 'updatedAt']);
-
-          allow delete: if isValidId(userId) && isValidId(profileId) && isValidId(progressId) && isOwner(userId);
-        }
-
-        match /ratings/{contentId} {
-          allow get: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) && isOwner(userId);
-          allow list: if isValidId(userId) && isValidId(profileId) && isOwner(userId);
-
-          allow create: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) &&
-                           isOwner(userId) &&
-                           incoming().contentId == contentId &&
-                           incoming().keys().hasAll(['contentId', 'liked', 'stars', 'updatedAt']) &&
-                           incoming().keys().hasOnly(['contentId', 'liked', 'stars', 'updatedAt']) &&
-                           isValidContentRating(incoming());
-
-          allow update: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) &&
-                           isOwner(userId) &&
-                           isValidContentRating(incoming()) &&
-                           incoming().contentId == existing().contentId &&
-                           incoming().diff(existing()).affectedKeys().hasOnly(['liked', 'stars', 'updatedAt']);
-
-          allow delete: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) && isOwner(userId);
-        }
-
-        match /searchHistory/{queryId} {
-          allow get: if isValidId(userId) && isValidId(profileId) && isValidId(queryId) && isOwner(userId);
-          allow list: if isValidId(userId) && isValidId(profileId) && isOwner(userId);
-
-          allow create: if isValidId(userId) && isValidId(profileId) && isValidId(queryId) &&
-                           isOwner(userId) &&
-                           incoming().keys().hasAll(['query', 'searchedAt']) &&
-                           incoming().keys().hasOnly(['query', 'searchedAt']) &&
-                           isValidSearchHistoryItem(incoming());
-
-          allow update: if isValidId(userId) && isValidId(profileId) && isValidId(queryId) &&
-                           isOwner(userId) &&
-                           isValidSearchHistoryItem(incoming()) &&
-                           incoming().diff(existing()).affectedKeys().hasOnly(['query', 'searchedAt']);
-
-          allow delete: if isValidId(userId) && isValidId(profileId) && isValidId(queryId) && isOwner(userId);
-        }
-      }
-
-      match /notifications/{notificationId} {
-        allow get: if isValidId(userId) && isValidId(notificationId) && isOwner(userId);
-        allow list: if isValidId(userId) && isOwner(userId);
-
-        allow create: if isValidId(userId) && isValidId(notificationId) &&
-                         (isOwner(userId) || isAdmin()) &&
-                         incoming().userId == userId &&
-                         incoming().keys().hasAll(['userId', 'title', 'message', 'read', 'createdAt']) &&
-                         incoming().keys().hasOnly(['userId', 'title', 'message', 'contentId', 'read', 'createdAt']) &&
-                         isValidUserNotification(incoming());
-
-        allow update: if isValidId(userId) && isValidId(notificationId) &&
-                         isOwner(userId) &&
-                         isValidUserNotification(incoming()) &&
-                         incoming().userId == existing().userId &&
-                         incoming().createdAt == existing().createdAt &&
-                         incoming().diff(existing()).affectedKeys().hasOnly(['read']);
-
-        allow delete: if isValidId(userId) && isValidId(notificationId) && isOwner(userId);
-      }
+    function isValidPublisherApplication(data) {
+      return data.userId is string && data.userId.size() >= 1 && data.userId.size() <= 128 &&
+             data.publisherName is string && data.publisherName.size() <= 120 &&
+             data.contactEmail is string && data.contactEmail.size() <= 200 &&
+             data.organizationDescription is string && data.organizationDescription.size() <= 1000 &&
+             data.intendedContentDetails is string && data.intendedContentDetails.size() <= 1000 &&
+             data.status in ['none', 'pending', 'under_review', 'approved', 'rejected'] &&
+             data.reviewerNotes is string && data.reviewerNotes.size() <= 2000 &&
+             (!('reviewedByUid' in data) || data.reviewedByUid == null || (data.reviewedByUid is string && data.reviewedByUid.size() <= 128)) &&
+             isValidTimestamp(data.submittedAt) &&
+             isValidTimestamp(data.updatedAt);
     }
 
+    function isValidContentSubmission(data) {
+      return data.publisherUid is string && data.publisherUid.size() >= 1 && data.publisherUid.size() <= 128 &&
+             data.publisherName is string && data.publisherName.size() >= 1 && data.publisherName.size() <= 120 &&
+             data.mediaType in ['movie', 'series', 'documentary', 'short_film'] &&
+             data.title is string && data.title.size() >= 1 && data.title.size() <= 200 &&
+             data.synopsis is string && data.synopsis.size() >= 1 && data.synopsis.size() <= 2000 &&
+             data.genres is list && data.genres.size() >= 1 && data.genres.size() <= 8 &&
+             data.genres[0] is string &&
+             data.releaseYear is int && data.releaseYear >= 1900 && data.releaseYear <= 2100 &&
+             data.runtimeMinutes is int && data.runtimeMinutes >= 1 && data.runtimeMinutes <= 1000 &&
+             data.ageRating is string && data.ageRating.size() >= 1 && data.ageRating.size() <= 20 &&
+             data.directorOrCreator is string && data.directorOrCreator.size() >= 1 && data.directorOrCreator.size() <= 120 &&
+             data.cast is list && data.cast.size() <= 12 &&
+             data.posterKey is string && data.posterKey.size() <= 128 &&
+             (!('posterUrl' in data) || data.posterUrl == null || (data.posterUrl is string && data.posterUrl.size() <= 1000)) &&
+             data.backdropKey is string && data.backdropKey.size() <= 128 &&
+             (!('backdropUrl' in data) || data.backdropUrl == null || (data.backdropUrl is string && data.backdropUrl.size() <= 1000)) &&
+             (!('trailerUrl' in data) || data.trailerUrl == null || (data.trailerUrl is string && data.trailerUrl.size() <= 1000)) &&
+             data.videoUrl is string && data.videoUrl.size() <= 1000 &&
+             (!('videoSourceType' in data) || data.videoSourceType in ['auto', 'youtube', 'embed', 'mp4', 'hls']) &&
+             (!('providerName' in data) || data.providerName == null || (data.providerName is string && data.providerName.size() <= 80)) &&
+             (!('hlsUrl' in data) || data.hlsUrl == null || (data.hlsUrl is string && data.hlsUrl.size() <= 1000)) &&
+             data.isKidsFriendly is bool &&
+             (!('tags' in data) || (data.tags is list && data.tags.size() <= 12)) &&
+             (!('seasons' in data) || (data.seasons is list && data.seasons.size() <= 30)) &&
+             data.distributionAuthorized is bool &&
+             data.distributionRightsStatement is string && data.distributionRightsStatement.size() <= 500 &&
+             data.reviewStatus in ['pending_review', 'under_review', 'approved', 'changes_requested', 'rejected'] &&
+             data.privateReviewerNotes is string && data.privateReviewerNotes.size() <= 2000 &&
+             (!('lastReviewedByUid' in data) || data.lastReviewedByUid == null || (data.lastReviewedByUid is string && data.lastReviewedByUid.size() <= 128)) &&
+             (!('lastReviewedAt' in data) || data.lastReviewedAt == null || data.lastReviewedAt is timestamp) &&
+             (!('publishedCatalogId' in data) || data.publishedCatalogId == null || (data.publishedCatalogId is string && data.publishedCatalogId.size() <= 128)) &&
+             data.isRevision is bool &&
+             data.revisionNumber is int && data.revisionNumber >= 1 && data.revisionNumber <= 1000 &&
+             isValidTimestamp(data.createdAt) &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidReviewDecision(data) {
+      return data.submissionId is string && data.submissionId.size() >= 1 && data.submissionId.size() <= 128 &&
+             data.reviewerUid is string && data.reviewerUid.size() >= 1 && data.reviewerUid.size() <= 128 &&
+             data.reviewerRole in ['admin', 'owner'] &&
+             data.decision in ['under_review', 'approved', 'changes_requested', 'rejected'] &&
+             data.notes is string && data.notes.size() <= 2000 &&
+             data.videoSourceVerified is bool &&
+             data.rightsConfirmed is bool &&
+             data.metadataVerified is bool &&
+             isValidTimestamp(data.createdAt);
+    }
+
+    function isValidPlatformSettings(data) {
+      return data.freeAccessEnabled is bool &&
+             data.freeAccessNotice is string && data.freeAccessNotice.size() <= 400 &&
+             data.updatedByUid is string && data.updatedByUid.size() >= 1 && data.updatedByUid.size() <= 128 &&
+             isValidTimestamp(data.updatedAt);
+    }
+
+    function isValidAuditLogEntry(data) {
+      return data.actorUid is string && data.actorUid.size() >= 1 && data.actorUid.size() <= 128 &&
+             data.actorRole in ['owner', 'admin'] &&
+             data.action is string && data.action.size() >= 1 && data.action.size() <= 120 &&
+             (!('targetUid' in data) || data.targetUid == null || (data.targetUid is string && data.targetUid.size() <= 128)) &&
+             (!('targetContentId' in data) || data.targetContentId == null || (data.targetContentId is string && data.targetContentId.size() <= 128)) &&
+             (!('targetSubscriptionId' in data) || data.targetSubscriptionId == null || (data.targetSubscriptionId is string && data.targetSubscriptionId.size() <= 128)) &&
+             data.previousValue is string && data.previousValue.size() <= 500 &&
+             data.newValue is string && data.newValue.size() <= 500 &&
+             data.details is string && data.details.size() <= 1000 &&
+             isValidTimestamp(data.createdAt);
+    }
+
+    // --- Collection Rules ---
+
+    // Immutable trusted Owner registry (cannot be altered or deleted by any client or Admin)
+    match /owners/{ownerUid} {
+      allow get: if isValidId(ownerUid) && (isAccountOwner(ownerUid) || isAdmin());
+      allow list: if isAdmin();
+
+      allow create: if isValidId(ownerUid) &&
+                       isBootstrappedOwner() &&
+                       request.auth.uid == ownerUid &&
+                       !exists(/databases/$(database)/documents/owners/$(ownerUid)) &&
+                       incoming().uid == ownerUid &&
+                       incoming().keys().hasAll(['uid', 'email', 'establishedBy', 'createdAt']) &&
+                       incoming().keys().hasOnly(['uid', 'email', 'establishedBy', 'createdAt']) &&
+                       isValidOwnerRecord(incoming());
+
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // Admin role registry — ONLY Platform Owner can appoint or remove Admins
     match /admins/{adminUid} {
-      allow get: if isValidId(adminUid) && (isOwner(adminUid) || isAdmin());
+      allow get: if isValidId(adminUid) && (isAccountOwner(adminUid) || isAdmin());
       allow list: if isAdmin();
 
       allow create: if isValidId(adminUid) &&
-                       (isAdmin() || (request.auth.uid == adminUid && request.auth.token.email.lower() == 'michael.tollackson82313@gmail.com')) &&
+                       isPlatformOwner() &&
                        incoming().uid == adminUid &&
                        incoming().keys().hasAll(['uid', 'email', 'grantedBy', 'createdAt']) &&
                        incoming().keys().hasOnly(['uid', 'email', 'grantedBy', 'createdAt']) &&
                        isValidAdminRecord(incoming());
 
       allow update: if false;
-      allow delete: if isValidId(adminUid) && isAdmin();
+      allow delete: if isValidId(adminUid) && isPlatformOwner() && !isTargetPlatformOwner(adminUid);
     }
 
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isAccountOwner(userId) || isAdmin());
+      allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
+
+      allow create: if isValidId(userId) &&
+                       isAccountOwner(userId) &&
+                       incoming().userId == request.auth.uid &&
+                       (
+                         incoming().role in ['viewer', 'member'] ||
+                         (incoming().role == 'owner' && isPlatformOwner())
+                       ) &&
+                       (!('publisherStatus' in incoming()) || incoming().publisherStatus == 'none') &&
+                       (!('isSuspended' in incoming()) || incoming().isSuspended == false) &&
+                       incoming().keys().hasAll(['userId', 'email', 'displayName', 'role', 'languagePreference', 'autoplayNext', 'defaultQuality', 'subtitlesEnabled', 'subtitleSize', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'email', 'phoneNumber', 'displayName', 'photoUrl', 'role', 'publisherStatus', 'publisherName', 'publisherAppliedAt', 'isSuspended', 'languagePreference', 'autoplayNext', 'defaultQuality', 'subtitlesEnabled', 'subtitleSize', 'createdAt', 'updatedAt']) &&
+                       isValidUserAccount(incoming());
+
+      allow update: if isValidId(userId) &&
+                       isValidUserAccount(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().createdAt == existing().createdAt && (
+                         // 1. Self preference update (cannot self-promote role or publisherStatus or unsuspended)
+                         (isAccountOwner(userId) &&
+                          incoming().role == existing().role &&
+                          incoming().get('publisherStatus', 'none') == existing().get('publisherStatus', 'none') &&
+                          incoming().get('isSuspended', false) == existing().get('isSuspended', false) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'phoneNumber', 'photoUrl', 'languagePreference', 'autoplayNext', 'defaultQuality', 'subtitlesEnabled', 'subtitleSize', 'updatedAt'])) ||
+                         // 2. Owner one-time self-sync to role='owner' (never downgrades, never suspends)
+                         (isAccountOwner(userId) &&
+                          isPlatformOwner() &&
+                          incoming().role == 'owner' &&
+                          incoming().get('isSuspended', false) == false &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['role', 'updatedAt'])) ||
+                         // 3. Platform Owner managing any non-Owner account (can assign viewer/publisher/admin, suspend, publisherStatus)
+                         (isPlatformOwner() &&
+                          !isTargetPlatformOwner(userId) &&
+                          incoming().role in ['viewer', 'member', 'publisher', 'admin'] &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['role', 'publisherStatus', 'publisherName', 'publisherAppliedAt', 'isSuspended', 'updatedAt'])) ||
+                         // 4. Non-Owner Admin managing ordinary Viewer/Publisher accounts ONLY (NEVER Owner, NEVER Admin, NEVER promote to Admin/Owner)
+                         (isAdminOnly() &&
+                          !isTargetPlatformOwner(userId) &&
+                          !isTargetAdmin(userId) &&
+                          existing().role in ['viewer', 'member', 'publisher'] &&
+                          incoming().role in ['viewer', 'member', 'publisher'] &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['role', 'publisherStatus', 'publisherName', 'publisherAppliedAt', 'isSuspended', 'updatedAt']))
+                       );
+
+      // Owner account can NEVER be deleted by any Admin; Admins can NEVER delete other Admins
+      allow delete: if isValidId(userId) &&
+                       !isTargetPlatformOwner(userId) && (
+                         isAccountOwner(userId) ||
+                         isPlatformOwner() ||
+                         (isAdminOnly() && !isTargetAdmin(userId))
+                       );
+
+      match /profiles/{profileId} {
+        allow get: if isValidId(userId) && isValidId(profileId) && (isAccountOwner(userId) || isAdmin());
+        allow list: if isValidId(userId) && (isAccountOwner(userId) || isAdmin());
+
+        allow create: if isValidId(userId) && isValidId(profileId) &&
+                         (isAccountOwner(userId) || (isAdmin() && !isTargetPlatformOwner(userId))) &&
+                         incoming().userId == userId &&
+                         incoming().keys().hasAll(['userId', 'name', 'avatarKey', 'isKids', 'preferredGenres', 'language', 'subtitlesEnabled', 'createdAt', 'updatedAt']) &&
+                         incoming().keys().hasOnly(['userId', 'name', 'avatarKey', 'isKids', 'preferredGenres', 'language', 'subtitlesEnabled', 'createdAt', 'updatedAt']) &&
+                         isValidUserProfile(incoming());
+
+        allow update: if isValidId(userId) && isValidId(profileId) &&
+                         (isAccountOwner(userId) || (isAdmin() && !isTargetPlatformOwner(userId))) &&
+                         isValidUserProfile(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['name', 'avatarKey', 'isKids', 'preferredGenres', 'language', 'subtitlesEnabled', 'updatedAt']);
+
+        allow delete: if isValidId(userId) && isValidId(profileId) && (isAccountOwner(userId) || (isAdmin() && !isTargetPlatformOwner(userId)));
+
+        match /watchlist/{contentId} {
+          allow get: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) && isAccountOwner(userId);
+          allow list: if isValidId(userId) && isValidId(profileId) && isAccountOwner(userId);
+
+          allow create: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) &&
+                           isAccountOwner(userId) &&
+                           incoming().contentId == contentId &&
+                           incoming().keys().hasAll(['contentId', 'mediaType', 'title', 'addedAt']) &&
+                           incoming().keys().hasOnly(['contentId', 'mediaType', 'title', 'addedAt']) &&
+                           isValidWatchlistItem(incoming());
+
+          allow update: if false;
+          allow delete: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) && isAccountOwner(userId);
+        }
+
+        match /progress/{progressId} {
+          allow get: if isValidId(userId) && isValidId(profileId) && isValidId(progressId) && isAccountOwner(userId);
+          allow list: if isValidId(userId) && isValidId(profileId) && isAccountOwner(userId);
+
+          allow create: if isValidId(userId) && isValidId(profileId) && isValidId(progressId) &&
+                           isAccountOwner(userId) &&
+                           incoming().keys().hasAll(['contentId', 'title', 'positionMs', 'durationMs', 'completed', 'updatedAt']) &&
+                           incoming().keys().hasOnly(['contentId', 'episodeId', 'seasonNumber', 'episodeNumber', 'title', 'positionMs', 'durationMs', 'completed', 'updatedAt']) &&
+                           isValidPlaybackProgress(incoming());
+
+          allow update: if isValidId(userId) && isValidId(profileId) && isValidId(progressId) &&
+                           isAccountOwner(userId) &&
+                           isValidPlaybackProgress(incoming()) &&
+                           incoming().contentId == existing().contentId &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['episodeId', 'seasonNumber', 'episodeNumber', 'title', 'positionMs', 'durationMs', 'completed', 'updatedAt']);
+
+          allow delete: if isValidId(userId) && isValidId(profileId) && isValidId(progressId) && isAccountOwner(userId);
+        }
+
+        match /ratings/{contentId} {
+          allow get: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) && isAccountOwner(userId);
+          allow list: if isValidId(userId) && isValidId(profileId) && isAccountOwner(userId);
+
+          allow create: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) &&
+                           isAccountOwner(userId) &&
+                           incoming().contentId == contentId &&
+                           incoming().keys().hasAll(['contentId', 'liked', 'stars', 'updatedAt']) &&
+                           incoming().keys().hasOnly(['contentId', 'liked', 'stars', 'updatedAt']) &&
+                           isValidContentRating(incoming());
+
+          allow update: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) &&
+                           isAccountOwner(userId) &&
+                           isValidContentRating(incoming()) &&
+                           incoming().contentId == existing().contentId &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['liked', 'stars', 'updatedAt']);
+
+          allow delete: if isValidId(userId) && isValidId(profileId) && isValidId(contentId) && isAccountOwner(userId);
+        }
+
+        match /searchHistory/{queryId} {
+          allow get: if isValidId(userId) && isValidId(profileId) && isValidId(queryId) && isAccountOwner(userId);
+          allow list: if isValidId(userId) && isValidId(profileId) && isAccountOwner(userId);
+
+          allow create: if isValidId(userId) && isValidId(profileId) && isValidId(queryId) &&
+                           isAccountOwner(userId) &&
+                           incoming().keys().hasAll(['query', 'searchedAt']) &&
+                           incoming().keys().hasOnly(['query', 'searchedAt']) &&
+                           isValidSearchHistoryItem(incoming());
+
+          allow update: if isValidId(userId) && isValidId(profileId) && isValidId(queryId) &&
+                           isAccountOwner(userId) &&
+                           isValidSearchHistoryItem(incoming()) &&
+                           incoming().diff(existing()).affectedKeys().hasOnly(['query', 'searchedAt']);
+
+          allow delete: if isValidId(userId) && isValidId(profileId) && isValidId(queryId) && isAccountOwner(userId);
+        }
+      }
+
+      match /notifications/{notificationId} {
+        allow get: if isValidId(userId) && isValidId(notificationId) && isAccountOwner(userId);
+        allow list: if isValidId(userId) && isAccountOwner(userId);
+
+        allow create: if isValidId(userId) && isValidId(notificationId) &&
+                         (isAccountOwner(userId) || isAdmin()) &&
+                         incoming().userId == userId &&
+                         incoming().keys().hasAll(['userId', 'title', 'message', 'read', 'createdAt']) &&
+                         incoming().keys().hasOnly(['userId', 'title', 'message', 'contentId', 'read', 'createdAt']) &&
+                         isValidUserNotification(incoming());
+
+        allow update: if isValidId(userId) && isValidId(notificationId) &&
+                         isAccountOwner(userId) &&
+                         isValidUserNotification(incoming()) &&
+                         incoming().userId == existing().userId &&
+                         incoming().createdAt == existing().createdAt &&
+                         incoming().diff(existing()).affectedKeys().hasOnly(['read']);
+
+        allow delete: if isValidId(userId) && isValidId(notificationId) && isAccountOwner(userId);
+      }
+    }
+
+    // Publisher/Distributor Applications (private to applicant & Admin/Owner)
+    match /publisherApplications/{userId} {
+      allow get: if isValidId(userId) && (isAccountOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+
+      // Applicant can create own tracking record ONLY with status='pending' (NEVER 'approved')
+      allow create: if isValidId(userId) &&
+                       isAccountOwner(userId) &&
+                       incoming().userId == request.auth.uid &&
+                       incoming().status == 'pending' &&
+                       incoming().reviewerNotes == '' &&
+                       (!('reviewedByUid' in incoming()) || incoming().reviewedByUid == null) &&
+                       incoming().keys().hasAll(['userId', 'publisherName', 'contactEmail', 'organizationDescription', 'intendedContentDetails', 'status', 'reviewerNotes', 'submittedAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['userId', 'publisherName', 'contactEmail', 'organizationDescription', 'intendedContentDetails', 'status', 'reviewerNotes', 'reviewedByUid', 'submittedAt', 'updatedAt']) &&
+                       isValidPublisherApplication(incoming());
+
+      allow update: if isValidId(userId) &&
+                       isValidPublisherApplication(incoming()) &&
+                       incoming().userId == existing().userId &&
+                       incoming().submittedAt == existing().submittedAt && (
+                         // Applicant can re-apply only if previously none/rejected -> back to pending
+                         (isAccountOwner(userId) &&
+                          existing().status in ['none', 'rejected'] &&
+                          incoming().status == 'pending' &&
+                          incoming().reviewerNotes == existing().reviewerNotes &&
+                          incoming().get('reviewedByUid', null) == existing().get('reviewedByUid', null) &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['publisherName', 'contactEmail', 'organizationDescription', 'intendedContentDetails', 'status', 'updatedAt'])) ||
+                         // Admin/Owner reviews application
+                         (isAdmin() &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['status', 'reviewerNotes', 'reviewedByUid', 'updatedAt']))
+                       );
+
+      allow delete: if false;
+    }
+
+    // Publisher Content Submissions & Revisions (NEVER readable by general Viewers)
+    match /contentSubmissions/{submissionId} {
+      allow get: if isValidId(submissionId) && (
+        isAdmin() ||
+        (isSignedIn() && resource != null && existing().publisherUid == request.auth.uid)
+      );
+      allow list: if isAdmin() || (isSignedIn() && resource.data.publisherUid == request.auth.uid);
+
+      // Only approved Publishers (or Admin/Owner) can create submissions; NEVER pre-approved
+      allow create: if isValidId(submissionId) &&
+                       isApprovedPublisher() &&
+                       incoming().publisherUid == request.auth.uid &&
+                       incoming().reviewStatus == 'pending_review' &&
+                       incoming().distributionAuthorized == true &&
+                       incoming().privateReviewerNotes == '' &&
+                       (!('lastReviewedByUid' in incoming()) || incoming().lastReviewedByUid == null) &&
+                       (!('lastReviewedAt' in incoming()) || incoming().lastReviewedAt == null) &&
+                       isValidContentSubmission(incoming());
+
+      allow update: if isValidId(submissionId) &&
+                       isSignedIn() &&
+                       incoming().publisherUid == existing().publisherUid &&
+                       incoming().createdAt == existing().createdAt && (
+                         // Admin/Owner moderation decision
+                         (isAdmin() &&
+                          incoming().diff(existing()).affectedKeys().hasOnly(['reviewStatus', 'privateReviewerNotes', 'lastReviewedByUid', 'lastReviewedAt', 'publishedCatalogId', 'updatedAt']) &&
+                          incoming().reviewStatus in ['pending_review', 'under_review', 'approved', 'changes_requested', 'rejected'] &&
+                          incoming().privateReviewerNotes is string && incoming().privateReviewerNotes.size() <= 2000 &&
+                          isValidTimestamp(incoming().updatedAt)) ||
+                         // Publisher editing own pending or changes_requested submission (cannot self-approve or touch reviewer notes)
+                         (existing().publisherUid == request.auth.uid &&
+                          existing().reviewStatus in ['pending_review', 'changes_requested'] &&
+                          incoming().reviewStatus == 'pending_review' &&
+                          incoming().distributionAuthorized == true &&
+                          incoming().privateReviewerNotes == existing().privateReviewerNotes &&
+                          incoming().get('lastReviewedByUid', null) == existing().get('lastReviewedByUid', null) &&
+                          incoming().get('lastReviewedAt', null) == existing().get('lastReviewedAt', null) &&
+                          incoming().get('publishedCatalogId', null) == existing().get('publishedCatalogId', null) &&
+                          incoming().isRevision == existing().isRevision &&
+                          incoming().revisionNumber == existing().revisionNumber &&
+                          isApprovedPublisher() &&
+                          isValidContentSubmission(incoming()))
+                       );
+
+      allow delete: if isValidId(submissionId) && (
+        isAdmin() ||
+        (isApprovedPublisher() && existing().publisherUid == request.auth.uid && existing().reviewStatus in ['pending_review', 'changes_requested', 'rejected'])
+      );
+
+      // Immutable review history for a submission
+      match /reviews/{reviewId} {
+        allow get: if isValidId(submissionId) && isValidId(reviewId) && (
+          isAdmin() ||
+          (isSignedIn() &&
+           exists(/databases/$(database)/documents/contentSubmissions/$(submissionId)) &&
+           get(/databases/$(database)/documents/contentSubmissions/$(submissionId)).data.publisherUid == request.auth.uid)
+        );
+        allow list: if isValidId(submissionId) && (
+          isAdmin() ||
+          (isSignedIn() &&
+           exists(/databases/$(database)/documents/contentSubmissions/$(submissionId)) &&
+           get(/databases/$(database)/documents/contentSubmissions/$(submissionId)).data.publisherUid == request.auth.uid)
+        );
+
+        allow create: if isValidId(submissionId) && isValidId(reviewId) &&
+                         isAdmin() &&
+                         incoming().submissionId == submissionId &&
+                         incoming().reviewerUid == request.auth.uid &&
+                         isValidReviewDecision(incoming());
+
+        allow update: if false;
+        allow delete: if false;
+      }
+    }
+
+    // Public Catalog — strictly Admin/Owner writes ONLY (Publishers cannot bypass moderation)
     match /catalog/{contentId} {
       allow get: if isValidId(contentId) && isSignedIn() && (isAdmin() || (resource != null && existing().isVisible == true));
       allow list: if isSignedIn() && (isAdmin() || resource.data.isVisible == true);
@@ -420,14 +722,14 @@ service cloud.firestore {
       allow create: if isValidId(contentId) &&
                        isAdmin() &&
                        incoming().keys().hasAll(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'backdropKey', 'videoUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'videoSourceType', 'providerName', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'tags', 'keywords', 'isStaffPick', 'isAwardWinning', 'isComingSoon', 'expectedReleaseDate', 'leavingSoonAt', 'createdAt', 'updatedAt']) &&
+                       incoming().keys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'videoSourceType', 'providerName', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'tags', 'keywords', 'isStaffPick', 'isAwardWinning', 'isComingSoon', 'expectedReleaseDate', 'leavingSoonAt', 'publisherUid', 'publisherName', 'sourceSubmissionId', 'contentCategory', 'createdAt', 'updatedAt']) &&
                        isValidCatalogItem(incoming());
 
       allow update: if isValidId(contentId) &&
                        isAdmin() &&
                        isValidCatalogItem(incoming()) &&
                        incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'videoSourceType', 'providerName', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'tags', 'keywords', 'isStaffPick', 'isAwardWinning', 'isComingSoon', 'expectedReleaseDate', 'leavingSoonAt', 'updatedAt']);
+                       incoming().diff(existing()).affectedKeys().hasOnly(['title', 'synopsis', 'mediaType', 'genres', 'releaseYear', 'runtimeMinutes', 'ageRating', 'director', 'cast', 'posterKey', 'posterUrl', 'backdropKey', 'backdropUrl', 'trailerUrl', 'videoUrl', 'videoSourceType', 'providerName', 'hlsUrl', 'isFeatured', 'isVisible', 'isKidsFriendly', 'trendingScore', 'popularityRank', 'tags', 'keywords', 'isStaffPick', 'isAwardWinning', 'isComingSoon', 'expectedReleaseDate', 'leavingSoonAt', 'publisherUid', 'publisherName', 'sourceSubmissionId', 'contentCategory', 'updatedAt']);
 
       allow delete: if isValidId(contentId) && isAdmin();
 
@@ -491,25 +793,33 @@ service cloud.firestore {
       allow delete: if isValidId(genreId) && isAdmin();
     }
 
+    // Subscription Plans: Viewers see only enabled, public, non-archived plans; Admin/Owner manages all
     match /subscriptionPlans/{planId} {
-      allow get: if isValidId(planId) && isSignedIn() && (isAdmin() || (resource != null && existing().isActive == true));
-      allow list: if isSignedIn() && (isAdmin() || resource.data.isActive == true);
+      allow get: if isValidId(planId) && isSignedIn() && (
+        isAdmin() ||
+        (resource != null && existing().isActive == true && existing().get('isPublic', true) == true && existing().get('isArchived', false) == false)
+      );
+      allow list: if isSignedIn() && (
+        isAdmin() ||
+        (resource.data.isActive == true && resource.data.isPublic == true && resource.data.isArchived == false)
+      );
 
       allow create: if isValidId(planId) &&
                        isAdmin() &&
                        incoming().keys().hasAll(['tierCode', 'name', 'description', 'isPermanentFree', 'isActive', 'monthlyPriceCents', 'yearlyPriceCents', 'maxQuality', 'maxSimultaneousStreams', 'maxProfiles', 'featuresSummary', 'displayOrder', 'createdAt', 'updatedAt']) &&
-                       incoming().keys().hasOnly(['tierCode', 'name', 'description', 'isPermanentFree', 'isActive', 'monthlyPriceCents', 'yearlyPriceCents', 'maxQuality', 'maxSimultaneousStreams', 'maxProfiles', 'featuresSummary', 'displayOrder', 'createdAt', 'updatedAt']) &&
-                       (planId != 'free' || (incoming().isPermanentFree == true && incoming().isActive == true && incoming().monthlyPriceCents == 0 && incoming().yearlyPriceCents == 0)) &&
+                       incoming().keys().hasOnly(['tierCode', 'name', 'description', 'isPermanentFree', 'isActive', 'isPublic', 'isArchived', 'billingInterval', 'monthlyPriceCents', 'yearlyPriceCents', 'maxQuality', 'maxSimultaneousStreams', 'maxProfiles', 'featuresSummary', 'displayOrder', 'createdAt', 'updatedAt']) &&
+                       (planId != 'free' || (incoming().isPermanentFree == true && incoming().isActive == true && incoming().get('isPublic', true) == true && incoming().get('isArchived', false) == false && incoming().monthlyPriceCents == 0 && incoming().yearlyPriceCents == 0)) &&
                        isValidSubscriptionPlan(incoming());
 
       allow update: if isValidId(planId) &&
                        isAdmin() &&
                        isValidSubscriptionPlan(incoming()) &&
                        incoming().createdAt == existing().createdAt &&
-                       (existing().isPermanentFree == false || (incoming().isPermanentFree == true && incoming().isActive == true && incoming().monthlyPriceCents == 0 && incoming().yearlyPriceCents == 0)) &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['tierCode', 'name', 'description', 'isPermanentFree', 'isActive', 'monthlyPriceCents', 'yearlyPriceCents', 'maxQuality', 'maxSimultaneousStreams', 'maxProfiles', 'featuresSummary', 'displayOrder', 'updatedAt']);
+                       (existing().isPermanentFree == false || (incoming().isPermanentFree == true && incoming().isActive == true && incoming().get('isPublic', true) == true && incoming().get('isArchived', false) == false && incoming().monthlyPriceCents == 0 && incoming().yearlyPriceCents == 0)) &&
+                       incoming().diff(existing()).affectedKeys().hasOnly(['tierCode', 'name', 'description', 'isPermanentFree', 'isActive', 'isPublic', 'isArchived', 'billingInterval', 'monthlyPriceCents', 'yearlyPriceCents', 'maxQuality', 'maxSimultaneousStreams', 'maxProfiles', 'featuresSummary', 'displayOrder', 'updatedAt']);
 
-      allow delete: if isValidId(planId) && isAdmin() && existing().isPermanentFree == false;
+      // Plans should be archived rather than hard-deleted to preserve user references
+      allow delete: if false;
 
       match /features/{featureId} {
         allow get: if isValidId(planId) && isValidId(featureId) && isSignedIn();
@@ -532,35 +842,50 @@ service cloud.firestore {
     }
 
     match /userSubscriptions/{userId} {
-      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow get: if isValidId(userId) && (isAccountOwner(userId) || isAdmin());
       allow list: if isAdmin() || (isSignedIn() && resource.data.userId == request.auth.uid);
 
       allow create: if isValidId(userId) &&
                        incoming().userId == userId &&
                        incoming().keys().hasAll(['userId', 'planId', 'planName', 'status', 'isPermanentFree', 'assignedBy', 'startsAt', 'createdAt', 'updatedAt']) &&
                        incoming().keys().hasOnly(['userId', 'planId', 'planName', 'status', 'isPermanentFree', 'assignedBy', 'startsAt', 'expiresAt', 'createdAt', 'updatedAt']) &&
-                       ((isOwner(userId) &&
+                       ((isAccountOwner(userId) &&
                          incoming().planId == 'free' &&
                          incoming().planName == 'Free' &&
                          incoming().status == 'active' &&
                          incoming().isPermanentFree == true &&
+                         incoming().assignedBy in ['system', 'self'] &&
                          (!('expiresAt' in incoming()) || incoming().expiresAt == null)) ||
                         isAdmin()) &&
                        isValidUserSubscription(incoming());
 
       allow update: if isValidId(userId) &&
-                       isAdmin() &&
                        isValidUserSubscription(incoming()) &&
                        incoming().userId == existing().userId &&
                        incoming().startsAt == existing().startsAt &&
                        incoming().createdAt == existing().createdAt &&
-                       incoming().diff(existing()).affectedKeys().hasOnly(['planId', 'planName', 'status', 'isPermanentFree', 'assignedBy', 'expiresAt', 'updatedAt']);
+                       incoming().diff(existing()).affectedKeys().hasOnly(['planId', 'planName', 'status', 'isPermanentFree', 'assignedBy', 'expiresAt', 'updatedAt']) && (
+                         // Admin/Owner can manually assign, activate, pause, or deactivate any user's subscription
+                         isAdmin() ||
+                         // Viewer can self-switch ONLY among enabled, public, non-archived plans (or cancel own non-free plan back to free)
+                         (isAccountOwner(userId) &&
+                          incoming().assignedBy == 'self' &&
+                          incoming().status == 'active' &&
+                          (!('expiresAt' in incoming()) || incoming().expiresAt == null) &&
+                          exists(/databases/$(database)/documents/subscriptionPlans/$(incoming().planId)) &&
+                          get(/databases/$(database)/documents/subscriptionPlans/$(incoming().planId)).data.isActive == true &&
+                          get(/databases/$(database)/documents/subscriptionPlans/$(incoming().planId)).data.get('isPublic', true) == true &&
+                          get(/databases/$(database)/documents/subscriptionPlans/$(incoming().planId)).data.get('isArchived', false) == false &&
+                          incoming().planName == get(/databases/$(database)/documents/subscriptionPlans/$(incoming().planId)).data.name &&
+                          incoming().isPermanentFree == get(/databases/$(database)/documents/subscriptionPlans/$(incoming().planId)).data.isPermanentFree)
+                       );
 
       allow delete: if false;
     }
 
     match /homepageConfig/{configId} {
-      allow get, list: if isValidId(configId) && isSignedIn();
+      allow get: if isValidId(configId) && isSignedIn();
+      allow list: if isSignedIn();
 
       allow create, update: if isValidId(configId) &&
                                isAdmin() &&
@@ -571,7 +896,8 @@ service cloud.firestore {
       allow delete: if isValidId(configId) && isAdmin();
 
       match /rows/{rowId} {
-        allow get, list: if isValidId(configId) && isValidId(rowId) && isSignedIn();
+        allow get: if isValidId(configId) && isValidId(rowId) && isSignedIn();
+        allow list: if isValidId(configId) && isSignedIn();
 
         allow create, update: if isValidId(configId) && isValidId(rowId) &&
                                  isAdmin() &&
@@ -581,6 +907,39 @@ service cloud.firestore {
 
         allow delete: if isValidId(configId) && isValidId(rowId) && isAdmin();
       }
+    }
+
+    // Platform-wide settings (e.g., freeAccessEnabled)
+    match /platformSettings/{settingId} {
+      allow get: if isValidId(settingId) && isSignedIn();
+      allow list: if isSignedIn();
+
+      allow create, update: if isValidId(settingId) &&
+                               isAdmin() &&
+                               incoming().updatedByUid == request.auth.uid &&
+                               incoming().keys().hasAll(['freeAccessEnabled', 'freeAccessNotice', 'updatedByUid', 'updatedAt']) &&
+                               incoming().keys().hasOnly(['freeAccessEnabled', 'freeAccessNotice', 'updatedByUid', 'updatedAt']) &&
+                               isValidPlatformSettings(incoming());
+
+      allow delete: if false;
+    }
+
+    // Immutable Audit Logs — strictly readable and append-only by Owner/Admin; ZERO access for Viewer/Publisher
+    match /auditLogs/{logId} {
+      allow get: if isValidId(logId) && isAdmin();
+      allow list: if isAdmin();
+
+      allow create: if isValidId(logId) &&
+                       isAdmin() &&
+                       incoming().actorUid == request.auth.uid &&
+                       ((isPlatformOwner() && incoming().actorRole == 'owner') ||
+                        (!isPlatformOwner() && incoming().actorRole == 'admin')) &&
+                       incoming().keys().hasAll(['actorUid', 'actorRole', 'action', 'previousValue', 'newValue', 'details', 'createdAt']) &&
+                       incoming().keys().hasOnly(['actorUid', 'actorRole', 'action', 'targetUid', 'targetContentId', 'targetSubscriptionId', 'previousValue', 'newValue', 'details', 'createdAt']) &&
+                       isValidAuditLogEntry(incoming());
+
+      allow update: if false;
+      allow delete: if false;
     }
   }
 }

@@ -3,14 +3,23 @@ package com.example.ui.state
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.model.AppRole
+import com.example.data.model.AuditLogEntry
 import com.example.data.model.CatalogItem
 import com.example.data.model.ContentRating
+import com.example.data.model.ContentReviewDecision
+import com.example.data.model.ContentReviewStatus
+import com.example.data.model.ContentSubmission
 import com.example.data.model.Episode
 import com.example.data.model.Genre
 import com.example.data.model.HomepageRowRule
 import com.example.data.model.HomepageSettings
 import com.example.data.model.PlanFeature
+import com.example.data.model.PlatformSettings
 import com.example.data.model.PlaybackProgress
+import com.example.data.model.PublisherApplication
+import com.example.data.model.PublisherStatus
+import com.example.data.model.RoleGovernance
 import com.example.data.model.SearchHistoryItem
 import com.example.data.model.Season
 import com.example.data.model.SeasonDraft
@@ -24,6 +33,7 @@ import com.example.data.model.UserSubscription
 import com.example.data.model.WatchlistItem
 import com.example.data.repository.AuthRepository
 import com.example.data.repository.CatalogRepository
+import com.example.data.repository.GovernanceRepository
 import com.example.data.repository.MediaAssetCategory
 import com.example.data.repository.MediaUploadRepository
 import com.example.data.repository.MediaUploadState
@@ -71,7 +81,8 @@ class VeloraViewModel(
     private val catalogRepository: CatalogRepository,
     private val subscriptionRepository: SubscriptionRepository,
     val currentUserId: String,
-    private val mediaUploadRepository: MediaUploadRepository? = null
+    private val mediaUploadRepository: MediaUploadRepository? = null,
+    private val governanceRepository: GovernanceRepository? = null
 ) : ViewModel() {
 
     private val _statusMessage = MutableStateFlow<String?>(null)
@@ -112,12 +123,88 @@ class VeloraViewModel(
     private val _exploreSort = MutableStateFlow(SortOption.TRENDING)
     val exploreSort: StateFlow<SortOption> = _exploreSort.asStateFlow()
 
-    val isAdmin: StateFlow<Boolean> = authRepository.observeIsAdmin(currentUserId)
+    val effectiveRole: StateFlow<AppRole> = authRepository.observeEffectiveRole(currentUserId)
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS),
+            if (authRepository.isBootstrappedOwner()) AppRole.OWNER else AppRole.VIEWER
+        )
+
+    val isOwner: StateFlow<Boolean> = effectiveRole
+        .map { it.isOwner }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), authRepository.isBootstrappedOwner())
+
+    val isAdmin: StateFlow<Boolean> = effectiveRole
+        .map { it.isAdminOrOwner }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), authRepository.isBootstrappedAdmin())
 
     val accountState: StateFlow<UserAccount?> = authRepository.observeUserAccount(currentUserId)
         .catch { emit(null) }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
+
+    val isApprovedPublisher: StateFlow<Boolean> = combine(
+        effectiveRole,
+        accountState
+    ) { role, acct ->
+        RoleGovernance.isApprovedPublisherAccess(
+            effectiveRole = role,
+            publisherStatus = acct?.parsedPublisherStatus ?: PublisherStatus.NONE
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), authRepository.isBootstrappedOwner())
+
+    val myPublisherApplication: StateFlow<PublisherApplication?> =
+        (governanceRepository?.observeMyPublisherApplication(currentUserId) ?: flowOf(null))
+            .catch { emit(null) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), null)
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val allPublisherApplications: StateFlow<List<PublisherApplication>> = isAdmin
+        .flatMapLatest { admin ->
+            if (admin && governanceRepository != null) {
+                governanceRepository.observeAllPublisherApplications().catch { emit(emptyList()) }
+            } else {
+                flowOf(emptyList())
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val mySubmissions: StateFlow<List<ContentSubmission>> = isApprovedPublisher
+        .flatMapLatest { approved ->
+            if (approved && governanceRepository != null) {
+                governanceRepository.observeMySubmissions(currentUserId).catch { emit(emptyList()) }
+            } else {
+                flowOf(emptyList())
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val allSubmissions: StateFlow<List<ContentSubmission>> = isAdmin
+        .flatMapLatest { admin ->
+            if (admin && governanceRepository != null) {
+                governanceRepository.observeAllSubmissionsForModeration().catch { emit(emptyList()) }
+            } else {
+                flowOf(emptyList())
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
+
+    val platformSettings: StateFlow<PlatformSettings> =
+        (governanceRepository?.observePlatformSettings() ?: flowOf(PlatformSettings()))
+            .catch { emit(PlatformSettings()) }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), PlatformSettings())
+
+    @OptIn(ExperimentalCoroutinesApi::class)
+    val auditLogs: StateFlow<List<AuditLogEntry>> = isAdmin
+        .flatMapLatest { admin ->
+            if (admin && governanceRepository != null) {
+                governanceRepository.observeAuditLogs().catch { emit(emptyList()) }
+            } else {
+                flowOf(emptyList())
+            }
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(STOP_TIMEOUT_MS), emptyList())
 
     val profilesState: StateFlow<UiState<List<UserProfile>>> = profileRepository.observeProfiles(currentUserId)
         .map<List<UserProfile>, UiState<List<UserProfile>>> { UiState.Success(it) }
@@ -793,35 +880,320 @@ class VeloraViewModel(
     }
 
     fun setUserAdminRole(target: UserAccount, makeAdmin: Boolean) {
+        val desired = if (makeAdmin) AppRole.ADMIN else AppRole.VIEWER
+        assignUserRole(target, desired)
+    }
+
+    fun assignUserRole(
+        target: UserAccount,
+        desiredRole: AppRole,
+        desiredPublisherStatus: PublisherStatus? = null
+    ) {
         if (!requireAdminAction()) return
+        val gov = governanceRepository
+        if (gov == null) {
+            _statusMessage.value = "Governance service unavailable."
+            return
+        }
         viewModelScope.launch {
-            catalogRepository.setUserAdminRole(target, makeAdmin)
+            gov.assignUserRole(
+                target = target,
+                desiredRole = desiredRole,
+                desiredPublisherStatus = desiredPublisherStatus,
+                actorRole = effectiveRole.value
+            ).onSuccess {
+                _statusMessage.value = "Updated ${target.displayName.ifBlank { target.email }} to ${desiredRole.label}"
+            }.onFailure {
+                _statusMessage.value = it.localizedMessage ?: "Failed to update user role"
+            }
+        }
+    }
+
+    fun updatePublisherStatus(target: UserAccount, newStatus: PublisherStatus) {
+        if (!requireAdminAction()) return
+        val gov = governanceRepository ?: return
+        viewModelScope.launch {
+            gov.updatePublisherStatus(target, newStatus, effectiveRole.value)
                 .onSuccess {
-                    _statusMessage.value = if (makeAdmin) {
-                        "Granted admin to ${target.displayName}"
-                    } else {
-                        "Revoked admin from ${target.displayName}"
-                    }
+                    _statusMessage.value = "Publisher status set to ${newStatus.label} for ${target.displayName.ifBlank { target.email }}"
                 }
                 .onFailure {
-                    _statusMessage.value = it.localizedMessage ?: "Failed to update user role"
+                    _statusMessage.value = it.localizedMessage ?: "Failed to update publisher status"
                 }
         }
     }
 
     fun setUserSuspended(target: UserAccount, suspended: Boolean) {
         if (!requireAdminAction()) return
+        val gov = governanceRepository
         viewModelScope.launch {
-            catalogRepository.setUserSuspended(target, suspended)
+            val result = if (gov != null) {
+                gov.setUserSuspendedWithAudit(target, suspended, effectiveRole.value)
+            } else {
+                catalogRepository.setUserSuspended(target, suspended)
+            }
+            result.onSuccess {
+                _statusMessage.value = if (suspended) {
+                    "Suspended account ${target.displayName}"
+                } else {
+                    "Restored account ${target.displayName}"
+                }
+            }.onFailure {
+                _statusMessage.value = it.localizedMessage ?: "Failed to update suspension status"
+            }
+        }
+    }
+
+    // --- Publisher Application & Content Submission Actions ---
+
+    fun submitPublisherApplicationTracker(
+        publisherName: String,
+        contactEmail: String,
+        organizationDescription: String,
+        intendedContentDetails: String,
+        onComplete: () -> Unit = {}
+    ) {
+        val gov = governanceRepository ?: return
+        viewModelScope.launch {
+            gov.submitPublisherApplicationTracker(
+                publisherName = publisherName,
+                contactEmail = contactEmail,
+                organizationDescription = organizationDescription,
+                intendedContentDetails = intendedContentDetails
+            ).onSuccess {
+                _statusMessage.value = "Application status recorded as Pending Review. Notflix will contact you by email with its decision."
+                onComplete()
+            }.onFailure {
+                _statusMessage.value = it.localizedMessage ?: "Could not record application status"
+            }
+        }
+    }
+
+    fun reviewPublisherApplication(
+        application: PublisherApplication,
+        newStatus: PublisherStatus,
+        reviewerNotes: String
+    ) {
+        if (!requireAdminAction()) return
+        val gov = governanceRepository ?: return
+        viewModelScope.launch {
+            gov.reviewPublisherApplication(
+                application = application,
+                newStatus = newStatus,
+                reviewerNotes = reviewerNotes,
+                actorRole = effectiveRole.value
+            ).onSuccess {
+                _statusMessage.value = "Application marked ${newStatus.label}"
+            }.onFailure {
+                _statusMessage.value = it.localizedMessage ?: "Failed to update publisher application"
+            }
+        }
+    }
+
+    fun submitPublisherContent(submission: ContentSubmission, onComplete: () -> Unit = {}) {
+        if (!isApprovedPublisher.value) {
+            _statusMessage.value = "Only approved Publishers/Distributors can submit content."
+            return
+        }
+        val gov = governanceRepository ?: return
+        viewModelScope.launch {
+            _isSavingCatalog.value = true
+            val result = if (submission.id.isBlank()) {
+                gov.submitNewContent(submission).map { Unit }
+            } else {
+                gov.updateOwnSubmission(submission)
+            }
+            result.onSuccess {
+                _statusMessage.value = "Submitted \"${submission.title}\" for content review."
+                onComplete()
+            }.onFailure {
+                _statusMessage.value = it.localizedMessage ?: "Submission failed"
+            }
+            _isSavingCatalog.value = false
+        }
+    }
+
+    fun submitApprovedContentRevision(
+        original: ContentSubmission,
+        revised: ContentSubmission,
+        onComplete: () -> Unit = {}
+    ) {
+        if (!isApprovedPublisher.value) {
+            _statusMessage.value = "Only approved Publishers/Distributors can submit revisions."
+            return
+        }
+        val gov = governanceRepository ?: return
+        viewModelScope.launch {
+            _isSavingCatalog.value = true
+            gov.submitRevisionForApprovedContent(original, revised)
                 .onSuccess {
-                    _statusMessage.value = if (suspended) {
-                        "Suspended account ${target.displayName}"
+                    _statusMessage.value = "Revision submitted for review. The live public title remains unchanged until approved."
+                    onComplete()
+                }
+                .onFailure {
+                    _statusMessage.value = it.localizedMessage ?: "Failed to submit revision"
+                }
+            _isSavingCatalog.value = false
+        }
+    }
+
+    fun observeReviewHistory(submissionId: String): Flow<List<ContentReviewDecision>> =
+        governanceRepository?.observeReviewHistory(submissionId) ?: flowOf(emptyList())
+
+    fun reviewContentSubmission(
+        submission: ContentSubmission,
+        decision: ContentReviewStatus,
+        privateNotes: String,
+        videoSourceVerified: Boolean,
+        rightsConfirmed: Boolean,
+        metadataVerified: Boolean,
+        onComplete: () -> Unit = {}
+    ) {
+        if (!requireAdminAction()) return
+        val gov = governanceRepository ?: return
+        viewModelScope.launch {
+            _isSavingCatalog.value = true
+            gov.reviewContentSubmission(
+                submission = submission,
+                decision = decision,
+                privateNotes = privateNotes,
+                videoSourceVerified = videoSourceVerified,
+                rightsConfirmed = rightsConfirmed,
+                metadataVerified = metadataVerified,
+                actorRole = effectiveRole.value
+            ).onSuccess {
+                _statusMessage.value = when (decision) {
+                    ContentReviewStatus.APPROVED -> "Approved & published \"${submission.title}\" to Notflix."
+                    ContentReviewStatus.CHANGES_REQUESTED -> "Requested changes for \"${submission.title}\"."
+                    ContentReviewStatus.REJECTED -> "Rejected \"${submission.title}\"."
+                    else -> "Marked \"${submission.title}\" as ${decision.label}."
+                }
+                onComplete()
+            }.onFailure {
+                _statusMessage.value = it.localizedMessage ?: "Failed to submit review decision"
+            }
+            _isSavingCatalog.value = false
+        }
+    }
+
+    // --- Subscription Plan & Free Access Management ---
+
+    fun saveSubscriptionPlan(plan: SubscriptionPlan, onComplete: () -> Unit = {}) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            subscriptionRepository.saveSubscriptionPlan(plan)
+                .onSuccess { planId ->
+                    governanceRepository?.writeAuditLog(
+                        actorUid = currentUserId,
+                        actorRole = effectiveRole.value,
+                        action = if (plan.id.isBlank()) "CREATE_SUBSCRIPTION_PLAN" else "UPDATE_SUBSCRIPTION_PLAN",
+                        targetSubscriptionId = planId,
+                        previousValue = plan.id.ifBlank { "new" },
+                        newValue = "${plan.name} (${plan.formattedPriceLabel()}, active=${plan.isActive}, public=${plan.isPublic})",
+                        details = "Saved subscription plan $planId"
+                    )
+                    _statusMessage.value = "Saved plan \"${plan.name}\""
+                    onComplete()
+                }
+                .onFailure {
+                    _statusMessage.value = it.localizedMessage ?: "Failed to save subscription plan"
+                }
+        }
+    }
+
+    fun archiveSubscriptionPlan(plan: SubscriptionPlan, archived: Boolean) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            subscriptionRepository.archiveSubscriptionPlan(plan, archived)
+                .onSuccess {
+                    governanceRepository?.writeAuditLog(
+                        actorUid = currentUserId,
+                        actorRole = effectiveRole.value,
+                        action = if (archived) "ARCHIVE_SUBSCRIPTION_PLAN" else "UNARCHIVE_SUBSCRIPTION_PLAN",
+                        targetSubscriptionId = plan.id,
+                        previousValue = "archived=${plan.isArchived}",
+                        newValue = "archived=$archived",
+                        details = "${if (archived) "Archived" else "Restored"} plan ${plan.name}"
+                    )
+                    _statusMessage.value = if (archived) "Archived \"${plan.name}\" (existing subscribers preserved)" else "Restored \"${plan.name}\""
+                }
+                .onFailure {
+                    _statusMessage.value = it.localizedMessage ?: "Failed to archive plan"
+                }
+        }
+    }
+
+    fun assignUserSubscription(targetUserId: String, plan: SubscriptionPlan, status: String = "active") {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            subscriptionRepository.assignUserSubscription(targetUserId, plan, status)
+                .onSuccess {
+                    governanceRepository?.writeAuditLog(
+                        actorUid = currentUserId,
+                        actorRole = effectiveRole.value,
+                        action = "ASSIGN_USER_SUBSCRIPTION",
+                        targetUid = targetUserId,
+                        targetSubscriptionId = plan.id.ifBlank { plan.tierCode },
+                        previousValue = "manual_update",
+                        newValue = "${plan.name} ($status)",
+                        details = "Admin assigned ${plan.name} ($status) to user $targetUserId"
+                    )
+                    _statusMessage.value = "Assigned ${plan.name} ($status) to user"
+                }
+                .onFailure {
+                    _statusMessage.value = it.localizedMessage ?: "Failed to assign subscription"
+                }
+        }
+    }
+
+    fun updateUserSubscriptionStatus(targetUserId: String, newStatus: String) {
+        if (!requireAdminAction()) return
+        viewModelScope.launch {
+            subscriptionRepository.updateUserSubscriptionStatus(targetUserId, newStatus)
+                .onSuccess {
+                    governanceRepository?.writeAuditLog(
+                        actorUid = currentUserId,
+                        actorRole = effectiveRole.value,
+                        action = "UPDATE_USER_SUBSCRIPTION_STATUS",
+                        targetUid = targetUserId,
+                        previousValue = "status_change",
+                        newValue = newStatus,
+                        details = "Updated subscription status to $newStatus"
+                    )
+                    _statusMessage.value = "Subscription status updated to $newStatus"
+                }
+                .onFailure {
+                    _statusMessage.value = it.localizedMessage ?: "Failed to update subscription status"
+                }
+        }
+    }
+
+    fun selectPublicPlanForSelf(plan: SubscriptionPlan) {
+        viewModelScope.launch {
+            subscriptionRepository.selectPublicPlanForSelf(plan)
+                .onSuccess {
+                    _statusMessage.value = "Switched to ${plan.name} plan"
+                }
+                .onFailure {
+                    _statusMessage.value = it.localizedMessage ?: "Could not switch plan"
+                }
+        }
+    }
+
+    fun setFreeAccessEnabled(enabled: Boolean) {
+        if (!requireAdminAction()) return
+        val gov = governanceRepository ?: return
+        viewModelScope.launch {
+            gov.setFreeAccessEnabled(enabled, effectiveRole.value)
+                .onSuccess {
+                    _statusMessage.value = if (enabled) {
+                        "Platform-wide Free Access enabled (existing subscriptions preserved)"
                     } else {
-                        "Restored account ${target.displayName}"
+                        "Platform-wide Free Access disabled (plan-based access active)"
                     }
                 }
                 .onFailure {
-                    _statusMessage.value = it.localizedMessage ?: "Failed to update suspension status"
+                    _statusMessage.value = it.localizedMessage ?: "Failed to update Free Access mode"
                 }
         }
     }

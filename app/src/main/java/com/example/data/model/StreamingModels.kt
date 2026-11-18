@@ -14,7 +14,10 @@ data class UserAccount(
     val phoneNumber: String? = null,
     val displayName: String = "",
     val photoUrl: String? = null,
-    val role: String = "member",
+    val role: String = "viewer", // owner | admin | publisher | viewer (legacy "member" maps to viewer)
+    val publisherStatus: String = "none", // none | pending | under_review | approved | rejected | suspended | revoked
+    val publisherName: String? = null,
+    val publisherAppliedAt: Timestamp? = null,
     val isSuspended: Boolean = false,
     val languagePreference: String = "English",
     val autoplayNext: Boolean = true,
@@ -24,6 +27,9 @@ data class UserAccount(
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
+    val parsedRole: AppRole get() = AppRole.fromKey(role)
+    val parsedPublisherStatus: PublisherStatus get() = PublisherStatus.fromKey(publisherStatus)
+
     fun toCreateMap(): Map<String, Any> = buildMap {
         put("userId", userId)
         put("email", email)
@@ -31,6 +37,8 @@ data class UserAccount(
         put("displayName", displayName.ifBlank { "Notflix Viewer" })
         if (!photoUrl.isNullOrBlank()) put("photoUrl", photoUrl)
         put("role", role)
+        put("publisherStatus", publisherStatus.ifBlank { PublisherStatus.NONE.key })
+        if (!publisherName.isNullOrBlank()) put("publisherName", publisherName.take(120))
         put("isSuspended", isSuspended)
         put("languagePreference", languagePreference)
         put("autoplayNext", autoplayNext)
@@ -203,6 +211,10 @@ data class CatalogItem(
     val isComingSoon: Boolean = false,
     val expectedReleaseDate: String? = null,
     val leavingSoonAt: String? = null,
+    val publisherUid: String? = null,
+    val publisherName: String? = null,
+    val sourceSubmissionId: String? = null,
+    val contentCategory: String? = null, // optional: movie | series | documentary | short_film
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
@@ -275,6 +287,18 @@ data class CatalogItem(
             put("leavingSoonAt", leavingSoonAt.trim().take(60))
         } else if (!isCreate) {
             put("leavingSoonAt", FieldValue.delete())
+        }
+        if (!publisherUid.isNullOrBlank()) {
+            put("publisherUid", publisherUid.trim().take(128))
+        }
+        if (!publisherName.isNullOrBlank()) {
+            put("publisherName", publisherName.trim().take(120))
+        }
+        if (!sourceSubmissionId.isNullOrBlank()) {
+            put("sourceSubmissionId", sourceSubmissionId.trim().take(128))
+        }
+        if (!contentCategory.isNullOrBlank()) {
+            put("contentCategory", contentCategory.trim().take(40))
         }
         if (isCreate) {
             put("createdAt", FieldValue.serverTimestamp())

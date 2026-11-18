@@ -6,16 +6,46 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    function isBootstrappedAdmin() {
+    function isBootstrappedOwner() {
       return isSignedIn() &&
-             request.auth.token.email == 'michael.tollackson82313@gmail.com' &&
-             request.auth.token.email_verified == true;
+             request.auth.token.email.lower() == 'michael.tollackson82313@gmail.com';
+    }
+
+    function isPlatformOwner() {
+      return isSignedIn() && (
+        request.auth.token.get('role', '') == 'owner' ||
+        isBootstrappedOwner() ||
+        firestore.exists(/databases/ai-studio-android-velora-fa049f50-d743-4c93-8b72-1a2b2b3ed613/documents/owners/$(request.auth.uid))
+      );
     }
 
     function isAdmin() {
       return isSignedIn() && (
-        isBootstrappedAdmin() ||
+        isPlatformOwner() ||
+        request.auth.token.get('role', '') == 'admin' ||
         firestore.exists(/databases/ai-studio-android-velora-fa049f50-d743-4c93-8b72-1a2b2b3ed613/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isApprovedPublisher() {
+      return isSignedIn() && (
+        isAdmin() ||
+        (firestore.exists(/databases/ai-studio-android-velora-fa049f50-d743-4c93-8b72-1a2b2b3ed613/documents/users/$(request.auth.uid)) &&
+         firestore.get(/databases/ai-studio-android-velora-fa049f50-d743-4c93-8b72-1a2b2b3ed613/documents/users/$(request.auth.uid)).data.role == 'publisher' &&
+         firestore.get(/databases/ai-studio-android-velora-fa049f50-d743-4c93-8b72-1a2b2b3ed613/documents/users/$(request.auth.uid)).data.publisherStatus == 'approved')
+      );
+    }
+
+    function isValidMediaResource() {
+      return request.resource == null || (
+        request.resource.size > 0 &&
+        request.resource.size <= 500 * 1024 * 1024 &&
+        (
+          request.resource.contentType.matches('image/.*') ||
+          request.resource.contentType.matches('video/.*') ||
+          request.resource.contentType == 'application/x-mpegURL' ||
+          request.resource.contentType == 'application/vnd.apple.mpegurl'
+        )
       );
     }
 
@@ -24,23 +54,23 @@ service firebase.storage {
       allow read, write: if false;
     }
 
-    // Catalog media assets (posters, backdrops, trailers, movies, and TV episode videos/thumbnails)
+    // Public catalog media assets (Admin/Owner write only)
     match /catalog/{contentFolder}/{assetCategory}/{fileName} {
       allow read: if isSignedIn();
       allow write: if isAdmin() &&
                       assetCategory in ['posters', 'backdrops', 'trailers', 'videos', 'episodes'] &&
-                      (
-                        request.resource == null || (
-                          request.resource.size > 0 &&
-                          request.resource.size <= 500 * 1024 * 1024 &&
-                          (
-                            request.resource.contentType.matches('image/.*') ||
-                            request.resource.contentType.matches('video/.*') ||
-                            request.resource.contentType == 'application/x-mpegURL' ||
-                            request.resource.contentType == 'application/vnd.apple.mpegurl'
-                          )
-                        )
-                      );
+                      isValidMediaResource();
+    }
+
+    // Private publisher submission media assets (scoped to publisherUid + Admin/Owner moderation)
+    match /submissions/{publisherUid}/{submissionFolder}/{assetCategory}/{fileName} {
+      allow read: if isSignedIn() && (request.auth.uid == publisherUid || isAdmin());
+      allow write: if (
+                        isAdmin() ||
+                        (isApprovedPublisher() && request.auth.uid == publisherUid)
+                      ) &&
+                      assetCategory in ['posters', 'backdrops', 'trailers', 'videos', 'episodes'] &&
+                      isValidMediaResource();
     }
   }
 }

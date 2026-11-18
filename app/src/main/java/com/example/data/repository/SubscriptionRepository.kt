@@ -91,19 +91,27 @@ class SubscriptionRepository(
         val query = if (includeInactiveForAdmin) {
             colRef
         } else {
-            colRef.whereEqualTo("isActive", true)
+            colRef
+                .whereEqualTo("isActive", true)
+                .whereEqualTo("isPublic", true)
+                .whereEqualTo("isArchived", false)
         }
         return query.snapshots()
             .map { snapshot ->
                 val remote = FirestoreDocumentMapper.toSubscriptionPlans(snapshot)
-                if (remote.isEmpty()) {
+                val filtered = if (includeInactiveForAdmin) {
+                    remote
+                } else {
+                    remote.filter { it.isSelectableByViewer }
+                }
+                if (filtered.isEmpty()) {
                     if (includeInactiveForAdmin) {
                         SubscriptionCatalogDefaults.allBlueprintTiers
                     } else {
                         listOf(SubscriptionCatalogDefaults.freePlan)
                     }
                 } else {
-                    remote.sortedBy { it.displayOrder }
+                    filtered.sortedBy { it.displayOrder }
                 }
             }
             .catch { error ->
@@ -116,6 +124,139 @@ class SubscriptionRepository(
                 }
                 throw error
             }
+    }
+
+    suspend fun saveSubscriptionPlan(plan: SubscriptionPlan): Result<String> = runCatching {
+        requireUserId()
+        val planId = plan.id.ifBlank {
+            plan.tierCode.ifBlank { plan.name }
+                .lowercase()
+                .replace(Regex("[^a-z0-9]+"), "-")
+                .trim('-')
+                .ifBlank { "plan-${System.currentTimeMillis()}" }
+                .take(48)
+        }
+        val docRef = db.collection("subscriptionPlans").document(planId)
+        val exists = docRef.get().await().exists()
+        val normalized = if (planId == "free" || plan.isPermanentFree) {
+            plan.copy(
+                id = planId,
+                isPermanentFree = true,
+                isActive = true,
+                isPublic = true,
+                isArchived = false,
+                monthlyPriceCents = 0,
+                yearlyPriceCents = 0,
+                billingInterval = "free"
+            )
+        } else {
+            plan.copy(id = planId)
+        }
+        if (exists) {
+            docRef.update(normalized.toWriteMap(isCreate = false)).await()
+        } else {
+            docRef.set(normalized.toWriteMap(isCreate = true)).await()
+        }
+        planId
+    }
+
+    suspend fun archiveSubscriptionPlan(plan: SubscriptionPlan, archived: Boolean): Result<Unit> = runCatching {
+        requireUserId()
+        require(!plan.isPermanentFree && plan.id != "free") {
+            "The permanent Free plan cannot be archived."
+        }
+        val docRef = db.collection("subscriptionPlans").document(plan.id)
+        docRef.update(
+            mapOf(
+                "isArchived" to archived,
+                "isActive" to if (archived) false else plan.isActive,
+                "isPublic" to if (archived) false else plan.isPublic,
+                "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+            )
+        ).await()
+    }
+
+    suspend fun assignUserSubscription(
+        targetUserId: String,
+        plan: SubscriptionPlan,
+        status: String = "active"
+    ): Result<Unit> = runCatching {
+        val actorUid = requireUserId()
+        require(targetUserId.isNotBlank()) { "Target user ID is required." }
+        val docRef = db.collection("userSubscriptions").document(targetUserId)
+        val existing = docRef.get().await()
+        if (existing.exists()) {
+            docRef.update(
+                mapOf(
+                    "planId" to plan.id.ifBlank { plan.tierCode },
+                    "planName" to plan.name,
+                    "status" to status,
+                    "isPermanentFree" to plan.isPermanentFree,
+                    "assignedBy" to actorUid,
+                    "expiresAt" to null,
+                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                )
+            ).await()
+        } else {
+            docRef.set(
+                mapOf(
+                    "userId" to targetUserId,
+                    "planId" to plan.id.ifBlank { plan.tierCode },
+                    "planName" to plan.name,
+                    "status" to status,
+                    "isPermanentFree" to plan.isPermanentFree,
+                    "assignedBy" to actorUid,
+                    "startsAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                    "expiresAt" to null,
+                    "createdAt" to com.google.firebase.firestore.FieldValue.serverTimestamp(),
+                    "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+                )
+            ).await()
+        }
+    }
+
+    suspend fun updateUserSubscriptionStatus(
+        targetUserId: String,
+        newStatus: String
+    ): Result<Unit> = runCatching {
+        val actorUid = requireUserId()
+        require(newStatus in setOf("active", "paused", "expired", "canceled")) { "Invalid subscription status." }
+        val docRef = db.collection("userSubscriptions").document(targetUserId)
+        docRef.update(
+            mapOf(
+                "status" to newStatus,
+                "assignedBy" to actorUid,
+                "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+            )
+        ).await()
+    }
+
+    /**
+     * Viewer self-service selection restricted strictly to enabled, public, non-archived plans.
+     * Enforced independently by Firestore security rules.
+     */
+    suspend fun selectPublicPlanForSelf(plan: SubscriptionPlan): Result<Unit> = runCatching {
+        val uid = requireUserId()
+        require(plan.isSelectableByViewer) {
+            "This subscription plan is not publicly available."
+        }
+        val planId = plan.id.ifBlank { plan.tierCode }
+        val docRef = db.collection("userSubscriptions").document(uid)
+        val existing = docRef.get().await()
+        if (!existing.exists()) {
+            ensureFreeSubscription().getOrThrow()
+        }
+        docRef.update(
+            mapOf(
+                "planId" to planId,
+                "planName" to plan.name,
+                "status" to "active",
+                "isPermanentFree" to plan.isPermanentFree,
+                "assignedBy" to "self",
+                "expiresAt" to null,
+                "updatedAt" to com.google.firebase.firestore.FieldValue.serverTimestamp()
+            )
+        ).await()
     }
 
     fun observePlanFeatures(planId: String): Flow<List<PlanFeature>> {

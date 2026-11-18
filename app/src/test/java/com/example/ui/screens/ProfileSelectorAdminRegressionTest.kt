@@ -15,6 +15,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -91,27 +93,16 @@ class ProfileSelectorAdminRegressionTest {
                 if (!hasSelectedProfile) {
                     if (showPreProfileAdmin) {
                         AdminDashboardScreen(
-                            isAdmin = true,
-                            catalog = sampleCatalog,
-                            genres = listOf(Genre(id = "drama", name = "Drama"), Genre(id = "", name = "Sci-Fi")),
-                            users = sampleUsers,
-                            subscriptionPlans = samplePlans,
-                            userSubscriptions = sampleSubs,
-                            isSavingCatalog = false,
-                            isLoadingSeriesSeasons = false,
-                            loadedSeriesSeasons = emptyList(),
-                            onBack = { showPreProfileAdmin = false },
-                            onSeedCatalog = {},
-                            onSyncSubscriptionSchemas = {},
-                            onPrepareSeriesEditor = {},
-                            onSaveCatalogItem = { _, done -> done() },
-                            onSaveSeriesWithSeasons = { _, _, _, _, done -> done() },
-                            onDeleteCatalogItem = { _, _ -> },
-                            onAddSeason = { _, _ -> },
-                            onAddEpisode = { _, _, _ -> },
-                            onSaveGenre = {},
-                            onDeleteGenre = {},
-                            onToggleUserAdmin = { _, _ -> }
+                            state = AdminDashboardState(
+                                isAdmin = true,
+                                catalog = sampleCatalog,
+                                genres = listOf(Genre(id = "drama", name = "Drama"), Genre(id = "", name = "Sci-Fi")),
+                                users = sampleUsers,
+                                subscriptionPlans = samplePlans,
+                                userSubscriptions = sampleSubs
+                            ),
+                            actions = AdminDashboardActions(),
+                            onBack = { showPreProfileAdmin = false }
                         )
                     } else {
                         ProfileSelectorScreen(
@@ -139,15 +130,13 @@ class ProfileSelectorAdminRegressionTest {
         composeRule.onNodeWithTag("profile_selector_admin_button").assertIsDisplayed().performClick()
         composeRule.onNodeWithText("Admin Console").assertIsDisplayed()
 
-        // Navigate across all 5 tabs including Users & Plans with incomplete/blank fields
-        composeRule.onNode(hasText("Catalog (2)") and isSelectable()).performClick()
-        composeRule.onNodeWithText("Vimeo Showcase").assertIsDisplayed()
-        composeRule.onNode(hasText("Genres") and isSelectable()).performClick()
-        composeRule.onNodeWithText("Sci-Fi").assertIsDisplayed()
-        composeRule.onNode(hasText("Users") and isSelectable()).performClick()
+        // Navigate across tabs including Content Review, Users, and Plans & Pricing with incomplete/blank fields
+        composeRule.onNode(hasText("Content Review") and isSelectable()).performScrollTo().performClick()
+        composeRule.onNode(hasText("Users") and isSelectable()).performScrollTo().performClick()
+        composeRule.onNodeWithTag("admin_users_list").performScrollToNode(hasText("Notflix User"))
         composeRule.onNodeWithText("Notflix User").assertIsDisplayed()
-        composeRule.onNode(hasText("Plans") and isSelectable()).performClick()
-        composeRule.onNodeWithText("Free-First Architecture").assertIsDisplayed()
+        composeRule.onNode(hasText("Plans & Pricing") and isSelectable()).performScrollTo().performClick()
+        composeRule.onNodeWithTag("admin_create_plan_button").assertIsDisplayed()
 
         // Go back to Profile Selector and re-open Admin a second time
         composeRule.onNodeWithTag("admin_back_button").performClick()
@@ -170,28 +159,13 @@ class ProfileSelectorAdminRegressionTest {
                 if (!hasSelectedProfile) {
                     if (showPreProfileAdmin) {
                         AdminDashboardScreen(
-                            isAdmin = true,
-                            catalog = emptyList(),
-                            genres = emptyList(),
-                            users = listOf(UserAccount(userId = "admin_2", email = "other.admin@example.com", displayName = "Co-Admin", role = "admin")),
-                            subscriptionPlans = emptyList(),
-                            userSubscriptions = emptyList(),
-                            isSavingCatalog = false,
-                            isLoadingSeriesSeasons = false,
-                            loadedSeriesSeasons = emptyList(),
-                            adminErrorMessage = "Simulated transient sync error",
-                            onBack = { showPreProfileAdmin = false },
-                            onSeedCatalog = {},
-                            onSyncSubscriptionSchemas = {},
-                            onPrepareSeriesEditor = {},
-                            onSaveCatalogItem = { _, done -> done() },
-                            onSaveSeriesWithSeasons = { _, _, _, _, done -> done() },
-                            onDeleteCatalogItem = { _, _ -> },
-                            onAddSeason = { _, _ -> },
-                            onAddEpisode = { _, _, _ -> },
-                            onSaveGenre = {},
-                            onDeleteGenre = {},
-                            onToggleUserAdmin = { _, _ -> }
+                            state = AdminDashboardState(
+                                isAdmin = true,
+                                users = listOf(UserAccount(userId = "admin_2", email = "other.admin@example.com", displayName = "Co-Admin", role = "admin")),
+                                adminErrorMessage = "Simulated transient sync error"
+                            ),
+                            actions = AdminDashboardActions(),
+                            onBack = { showPreProfileAdmin = false }
                         )
                     } else {
                         ProfileSelectorScreen(
@@ -221,31 +195,13 @@ class ProfileSelectorAdminRegressionTest {
                         }
                         composable<VeloraRoute.Admin> {
                             AdminDashboardScreen(
-                                isAdmin = true,
-                                catalog = emptyList(),
-                                genres = emptyList(),
-                                users = emptyList(),
-                                subscriptionPlans = emptyList(),
-                                userSubscriptions = emptyList(),
-                                isSavingCatalog = false,
-                                isLoadingSeriesSeasons = false,
-                                loadedSeriesSeasons = emptyList(),
+                                state = AdminDashboardState(isAdmin = true),
+                                actions = AdminDashboardActions(),
                                 onBack = {
                                     if (navController.previousBackStackEntry != null) {
                                         navController.popBackStack()
                                     }
-                                },
-                                onSeedCatalog = {},
-                                onSyncSubscriptionSchemas = {},
-                                onPrepareSeriesEditor = {},
-                                onSaveCatalogItem = { _, done -> done() },
-                                onSaveSeriesWithSeasons = { _, _, _, _, done -> done() },
-                                onDeleteCatalogItem = { _, _ -> },
-                                onAddSeason = { _, _ -> },
-                                onAddEpisode = { _, _, _ -> },
-                                onSaveGenre = {},
-                                onDeleteGenre = {},
-                                onToggleUserAdmin = { _, _ -> }
+                                }
                             )
                         }
                     }
@@ -275,30 +231,12 @@ class ProfileSelectorAdminRegressionTest {
             VeloraTheme {
                 if (renderDeniedAdmin) {
                     AdminDashboardScreen(
-                        isAdmin = false,
-                        catalog = emptyList(),
-                        genres = emptyList(),
-                        users = emptyList(),
-                        subscriptionPlans = emptyList(),
-                        userSubscriptions = emptyList(),
-                        isSavingCatalog = false,
-                        isLoadingSeriesSeasons = false,
-                        loadedSeriesSeasons = emptyList(),
+                        state = AdminDashboardState(isAdmin = false),
+                        actions = AdminDashboardActions(),
                         onBack = {
                             returned = true
                             renderDeniedAdmin = false
-                        },
-                        onSeedCatalog = {},
-                        onSyncSubscriptionSchemas = {},
-                        onPrepareSeriesEditor = {},
-                        onSaveCatalogItem = { _, _ -> },
-                        onSaveSeriesWithSeasons = { _, _, _, _, _ -> },
-                        onDeleteCatalogItem = { _, _ -> },
-                        onAddSeason = { _, _ -> },
-                        onAddEpisode = { _, _, _ -> },
-                        onSaveGenre = {},
-                        onDeleteGenre = {},
-                        onToggleUserAdmin = { _, _ -> }
+                        }
                     )
                 } else {
                     ProfileSelectorScreen(

@@ -164,7 +164,7 @@ class CatalogRepository(
         ratings: List<ContentRating>
     ): List<CatalogItem> {
         val visible = catalog.filter { item ->
-            item.isVisible && (profile?.isKids != true || item.isKidsFriendly)
+            item.isPlayableNow && (profile?.isKids != true || item.isKidsFriendly)
         }
         if (visible.isEmpty()) return emptyList()
 

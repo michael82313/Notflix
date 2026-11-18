@@ -10,7 +10,9 @@
         "phoneNumber": { "type": "string", "description": "Optional verified phone number" },
         "displayName": { "type": "string", "description": "User display name" },
         "photoUrl": { "type": "string", "description": "Profile photo URL" },
-        "role": { "type": "string", "enum": ["member", "admin"], "description": "Access role" },
+        "role": { "type": "string", "enum": ["viewer", "member", "publisher", "admin", "owner"], "description": "Access role" },
+        "publisherStatus": { "type": "string", "enum": ["none", "pending", "under_review", "approved", "rejected", "suspended", "revoked"], "description": "Publisher onboarding/approval status" },
+        "publisherName": { "type": "string", "description": "Optional publisher or distributor label" },
         "isSuspended": { "type": "boolean", "description": "Whether account is suspended" },
         "languagePreference": { "type": "string", "description": "Preferred audio/UI language" },
         "autoplayNext": { "type": "boolean", "description": "Autoplay next episode toggle" },
@@ -21,6 +23,18 @@
         "updatedAt": { "type": "string", "format": "date-time", "description": "Server timestamp on update" }
       },
       "required": ["userId", "email", "displayName", "role", "languagePreference", "autoplayNext", "defaultQuality", "subtitlesEnabled", "subtitleSize", "createdAt", "updatedAt"]
+    },
+    "OwnerRecord": {
+      "title": "OwnerRecord",
+      "description": "Immutable trusted platform Owner identity record.",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string" },
+        "establishedBy": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["uid", "email", "establishedBy", "createdAt"]
     },
     "AdminRecord": {
       "title": "AdminRecord",
@@ -287,6 +301,99 @@
         "updatedAt": { "type": "string", "format": "date-time" }
       },
       "required": ["rowKey", "title", "enabled", "displayOrder", "maxItems", "personalized", "updatedAt"]
+    },
+    "PublisherApplication": {
+      "title": "PublisherApplication",
+      "description": "Private Publisher/Distributor application status record.",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "publisherName": { "type": "string" },
+        "contactEmail": { "type": "string" },
+        "organizationDescription": { "type": "string" },
+        "intendedContentDetails": { "type": "string" },
+        "status": { "type": "string", "enum": ["none", "pending", "under_review", "approved", "rejected"] },
+        "reviewerNotes": { "type": "string" },
+        "reviewedByUid": { "type": "string" },
+        "submittedAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "publisherName", "contactEmail", "organizationDescription", "intendedContentDetails", "status", "reviewerNotes", "submittedAt", "updatedAt"]
+    },
+    "ContentSubmission": {
+      "title": "ContentSubmission",
+      "description": "Publisher-submitted movie, TV show, documentary, short film, or revision awaiting content review.",
+      "type": "object",
+      "properties": {
+        "publisherUid": { "type": "string" },
+        "publisherName": { "type": "string" },
+        "mediaType": { "type": "string", "enum": ["movie", "series", "documentary", "short_film"] },
+        "title": { "type": "string" },
+        "synopsis": { "type": "string" },
+        "genres": { "type": "array" },
+        "releaseYear": { "type": "integer" },
+        "runtimeMinutes": { "type": "integer" },
+        "ageRating": { "type": "string" },
+        "directorOrCreator": { "type": "string" },
+        "videoUrl": { "type": "string" },
+        "videoSourceType": { "type": "string" },
+        "distributionAuthorized": { "type": "boolean" },
+        "reviewStatus": { "type": "string", "enum": ["pending_review", "under_review", "approved", "changes_requested", "rejected"] },
+        "privateReviewerNotes": { "type": "string" },
+        "publishedCatalogId": { "type": "string" },
+        "isRevision": { "type": "boolean" },
+        "revisionNumber": { "type": "integer" },
+        "createdAt": { "type": "string", "format": "date-time" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["publisherUid", "publisherName", "mediaType", "title", "synopsis", "genres", "releaseYear", "runtimeMinutes", "ageRating", "directorOrCreator", "videoUrl", "distributionAuthorized", "reviewStatus", "privateReviewerNotes", "isRevision", "revisionNumber", "createdAt", "updatedAt"]
+    },
+    "ContentReviewDecision": {
+      "title": "ContentReviewDecision",
+      "description": "Immutable content moderation decision entry.",
+      "type": "object",
+      "properties": {
+        "submissionId": { "type": "string" },
+        "reviewerUid": { "type": "string" },
+        "reviewerRole": { "type": "string", "enum": ["admin", "owner"] },
+        "decision": { "type": "string", "enum": ["under_review", "approved", "changes_requested", "rejected"] },
+        "notes": { "type": "string" },
+        "videoSourceVerified": { "type": "boolean" },
+        "rightsConfirmed": { "type": "boolean" },
+        "metadataVerified": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["submissionId", "reviewerUid", "reviewerRole", "decision", "notes", "videoSourceVerified", "rightsConfirmed", "metadataVerified", "createdAt"]
+    },
+    "PlatformSettings": {
+      "title": "PlatformSettings",
+      "description": "Global platform feature switches including freeAccessEnabled.",
+      "type": "object",
+      "properties": {
+        "freeAccessEnabled": { "type": "boolean" },
+        "freeAccessNotice": { "type": "string" },
+        "updatedByUid": { "type": "string" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["freeAccessEnabled", "freeAccessNotice", "updatedByUid", "updatedAt"]
+    },
+    "AuditLogEntry": {
+      "title": "AuditLogEntry",
+      "description": "Immutable security and governance audit trail record.",
+      "type": "object",
+      "properties": {
+        "actorUid": { "type": "string" },
+        "actorRole": { "type": "string", "enum": ["owner", "admin"] },
+        "action": { "type": "string" },
+        "targetUid": { "type": "string" },
+        "targetContentId": { "type": "string" },
+        "targetSubscriptionId": { "type": "string" },
+        "previousValue": { "type": "string" },
+        "newValue": { "type": "string" },
+        "details": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["actorUid", "actorRole", "action", "previousValue", "newValue", "details", "createdAt"]
     }
   },
   "firestore": {
@@ -357,6 +464,30 @@
     "/homepageConfig/{configId}/rows/{rowId}": {
       "schema": { "$ref": "#/entities/HomepageRowRule" },
       "description": "Ordered row rules for homepage layout."
+    },
+    "/owners/{ownerUid}": {
+      "schema": { "$ref": "#/entities/OwnerRecord" },
+      "description": "Immutable trusted Platform Owner lookup collection."
+    },
+    "/publisherApplications/{userId}": {
+      "schema": { "$ref": "#/entities/PublisherApplication" },
+      "description": "Private Publisher/Distributor application status documents."
+    },
+    "/contentSubmissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/ContentSubmission" },
+      "description": "Publisher content submissions and revisions pending admin review."
+    },
+    "/contentSubmissions/{submissionId}/reviews/{reviewId}": {
+      "schema": { "$ref": "#/entities/ContentReviewDecision" },
+      "description": "Immutable review decision history for a submission."
+    },
+    "/platformSettings/{settingId}": {
+      "schema": { "$ref": "#/entities/PlatformSettings" },
+      "description": "Global platform settings such as freeAccessEnabled."
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLogEntry" },
+      "description": "Immutable privileged action audit trail readable only by Owner and Admins."
     }
   }
 }

@@ -406,7 +406,7 @@ fun HomeScreen(
                                                         modifier = Modifier.testTag("profile_menu_switch_profile")
                                                     )
                                                     DropdownMenuItem(
-                                                        text = { Text("Account & Settings", color = VeloraOnBackground) },
+                                                        text = { Text("Account Details & Settings", color = VeloraOnBackground) },
                                                         leadingIcon = {
                                                             Icon(
                                                                 Icons.Filled.Settings,

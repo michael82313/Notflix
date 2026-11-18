@@ -101,6 +101,7 @@ import com.google.firebase.auth.PhoneAuthOptions
 import com.google.firebase.auth.PhoneAuthProvider
 import com.google.firebase.auth.auth
 import com.google.firebase.auth.userProfileChangeRequest
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
@@ -150,6 +151,8 @@ fun attemptAutoSignIn(
             } else {
                 onUnauthenticated()
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (_: Exception) {
             onUnauthenticated()
         }
@@ -189,6 +192,8 @@ fun onGoogleSignInClicked(
             } else {
                 onAuthError("Unexpected credential type returned.")
             }
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: GetCredentialCancellationException) {
             Log.w(AUTH_TAG, "Google Sign-In flow cancelled or dismissed: ${e.message}", e)
             onAuthCancelled()
@@ -295,6 +300,8 @@ fun SignInScreen(
                 }
                 isLoading = false
                 onAuthSuccess()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(AUTH_TAG, "Email auth failed", e)
                 isLoading = false
@@ -325,6 +332,8 @@ fun SignInScreen(
                         Firebase.auth.signInWithCredential(credential).await()
                         isLoading = false
                         onAuthSuccess()
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (e: Exception) {
                         isLoading = false
                         errorMessage = e.localizedMessage ?: "Phone sign-in failed."
@@ -372,6 +381,8 @@ fun SignInScreen(
                 Firebase.auth.signInWithCredential(credential).await()
                 isLoading = false
                 onAuthSuccess()
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 Log.e(AUTH_TAG, "Phone OTP sign-in failed", e)
                 isLoading = false
@@ -913,6 +924,8 @@ fun SignInScreen(
                                 isSendingReset = false
                                 showForgotPasswordDialog = false
                                 infoMessage = "Password reset email sent to $trimmed."
+                            } catch (e: CancellationException) {
+                                throw e
                             } catch (e: Exception) {
                                 isSendingReset = false
                                 resetError = e.localizedMessage ?: "Failed to send reset email."

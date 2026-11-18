@@ -92,46 +92,77 @@ import com.example.util.DetectedSourceKind
 import com.example.util.VideoSourceType
 import com.example.util.VideoSourceUtils
 
-@Composable
-fun AdminDashboardScreen(
-    isAdmin: Boolean,
-    catalog: List<CatalogItem>,
-    genres: List<Genre>,
-    users: List<UserAccount>,
-    subscriptionPlans: List<SubscriptionPlan>,
-    userSubscriptions: List<UserSubscription>,
-    isSavingCatalog: Boolean,
-    isLoadingSeriesSeasons: Boolean,
-    loadedSeriesSeasons: List<SeasonDraft>,
-    adminErrorMessage: String? = null,
-    mediaUploadStates: Map<String, MediaUploadState> = emptyMap(),
-    homepageSettings: HomepageSettings = HomepageSettings(),
-    homepageRowRules: List<HomepageRowRule> = HomeFeedRowBuilder.defaultRowRules(),
-    onUploadMedia: ((fieldKey: String, uri: Uri, category: MediaAssetCategory, contentFolderHint: String, onUploaded: (String) -> Unit) -> Unit)? = null,
-    onClearUploadState: ((String?) -> Unit)? = null,
-    onBack: () -> Unit,
-    onSeedCatalog: () -> Unit,
-    onSyncSubscriptionSchemas: () -> Unit,
-    onPrepareSeriesEditor: (String?) -> Unit,
-    onSaveCatalogItem: (CatalogItem, () -> Unit) -> Unit,
-    onSaveSeriesWithSeasons: (
+data class AdminDashboardState(
+    val isAdmin: Boolean,
+    val actorRole: com.example.data.model.AppRole = com.example.data.model.AppRole.ADMIN,
+    val catalog: List<CatalogItem> = emptyList(),
+    val genres: List<Genre> = emptyList(),
+    val users: List<UserAccount> = emptyList(),
+    val subscriptionPlans: List<SubscriptionPlan> = emptyList(),
+    val userSubscriptions: List<UserSubscription> = emptyList(),
+    val submissions: List<com.example.data.model.ContentSubmission> = emptyList(),
+    val publisherApplications: List<com.example.data.model.PublisherApplication> = emptyList(),
+    val platformSettings: com.example.data.model.PlatformSettings = com.example.data.model.PlatformSettings(),
+    val auditLogs: List<com.example.data.model.AuditLogEntry> = emptyList(),
+    val isSavingCatalog: Boolean = false,
+    val isLoadingSeriesSeasons: Boolean = false,
+    val loadedSeriesSeasons: List<SeasonDraft> = emptyList(),
+    val adminErrorMessage: String? = null,
+    val mediaUploadStates: Map<String, MediaUploadState> = emptyMap(),
+    val homepageSettings: HomepageSettings = HomepageSettings(),
+    val homepageRowRules: List<HomepageRowRule> = HomeFeedRowBuilder.defaultRowRules()
+)
+
+class AdminDashboardActions(
+    val onUploadMedia: ((fieldKey: String, uri: Uri, category: MediaAssetCategory, contentFolderHint: String, onUploaded: (String) -> Unit) -> Unit)? = null,
+    val onClearUploadState: ((String?) -> Unit)? = null,
+    val onSeedCatalog: () -> Unit = {},
+    val onSyncSubscriptionSchemas: () -> Unit = {},
+    val onPrepareSeriesEditor: (String?) -> Unit = {},
+    val onSaveCatalogItem: (CatalogItem, () -> Unit) -> Unit = { _, done -> done() },
+    val onSaveSeriesWithSeasons: (
         series: CatalogItem,
         seasons: List<SeasonDraft>,
         removedSeasonIds: Set<String>,
         removedEpisodeRefs: List<Pair<String, String>>,
         onComplete: () -> Unit
-    ) -> Unit,
-    onDeleteCatalogItem: (String, String) -> Unit,
-    onAddSeason: (contentId: String, Season) -> Unit,
-    onAddEpisode: (contentId: String, seasonId: String, Episode) -> Unit,
-    onSaveGenre: (Genre) -> Unit,
-    onDeleteGenre: (String) -> Unit,
-    onSaveHomepageSettings: (HomepageSettings) -> Unit = {},
-    onSaveHomepageRowRules: (List<HomepageRowRule>) -> Unit = {},
-    onResetHomepageLayout: () -> Unit = {},
-    onToggleUserAdmin: (UserAccount, Boolean) -> Unit
+    ) -> Unit = { _, _, _, _, done -> done() },
+    val onDeleteCatalogItem: (String, String) -> Unit = { _, _ -> },
+    val onAddSeason: (contentId: String, Season) -> Unit = { _, _ -> },
+    val onAddEpisode: (contentId: String, seasonId: String, Episode) -> Unit = { _, _, _ -> },
+    val onSaveGenre: (Genre) -> Unit = {},
+    val onDeleteGenre: (String) -> Unit = {},
+    val onSaveHomepageSettings: (HomepageSettings) -> Unit = {},
+    val onSaveHomepageRowRules: (List<HomepageRowRule>) -> Unit = {},
+    val onResetHomepageLayout: () -> Unit = {},
+    val onAssignUserRole: (UserAccount, com.example.data.model.AppRole, com.example.data.model.PublisherStatus?) -> Unit = { _, _, _ -> },
+    val onToggleUserSuspended: (UserAccount, Boolean) -> Unit = { _, _ -> },
+    val onReviewPublisherApplication: (com.example.data.model.PublisherApplication, com.example.data.model.PublisherStatus, String) -> Unit = { _, _, _ -> },
+    val onUpdatePublisherStatus: (UserAccount, com.example.data.model.PublisherStatus) -> Unit = { _, _ -> },
+    val observeReviewHistory: (String) -> kotlinx.coroutines.flow.Flow<List<com.example.data.model.ContentReviewDecision>> = { kotlinx.coroutines.flow.flowOf(emptyList()) },
+    val onReviewSubmission: (
+        submission: com.example.data.model.ContentSubmission,
+        decision: com.example.data.model.ContentReviewStatus,
+        notes: String,
+        videoVerified: Boolean,
+        rightsConfirmed: Boolean,
+        metadataVerified: Boolean,
+        onComplete: () -> Unit
+    ) -> Unit = { _, _, _, _, _, _, done -> done() },
+    val onSaveSubscriptionPlan: (SubscriptionPlan, () -> Unit) -> Unit = { _, done -> done() },
+    val onArchiveSubscriptionPlan: (SubscriptionPlan, Boolean) -> Unit = { _, _ -> },
+    val onAssignUserSubscription: (String, SubscriptionPlan, String) -> Unit = { _, _, _ -> },
+    val onUpdateUserSubscriptionStatus: (String, String) -> Unit = { _, _ -> },
+    val onToggleFreeAccess: (Boolean) -> Unit = {}
+)
+
+@Composable
+fun AdminDashboardScreen(
+    state: AdminDashboardState,
+    actions: AdminDashboardActions,
+    onBack: () -> Unit
 ) {
-    if (!isAdmin) {
+    if (!state.isAdmin) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -142,7 +173,7 @@ fun AdminDashboardScreen(
             Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Icon(Icons.Filled.Lock, contentDescription = null, tint = VeloraError, modifier = Modifier.size(56.dp))
                 Text("Administrator Access Required", style = MaterialTheme.typography.headlineMedium, color = VeloraOnBackground)
-                Text("Regular member accounts cannot access platform administration tools.", style = MaterialTheme.typography.bodyMedium, color = VeloraOnSurfaceMuted)
+                Text("Only platform Administrators and the Owner can access this console.", style = MaterialTheme.typography.bodyMedium, color = VeloraOnSurfaceMuted)
                 Button(onClick = onBack, colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)) {
                     Text("Return")
                 }
@@ -152,16 +183,39 @@ fun AdminDashboardScreen(
     }
 
     var selectedTab by rememberSaveable { mutableIntStateOf(0) }
+    var platformSubTab by rememberSaveable { mutableIntStateOf(0) } // 0=FreeAccess+Home, 1=Live Catalog, 2=Genres
     var editingItem by remember { mutableStateOf<CatalogItem?>(null) }
     var createMediaType by remember { mutableStateOf<String?>(null) }
     var createAsComingSoon by remember { mutableStateOf(false) }
     var managingSeries by remember { mutableStateOf<CatalogItem?>(null) }
     var showAddGenreDialog by remember { mutableStateOf(false) }
 
+    val pendingSubmissionsCount = state.submissions.count {
+        it.parsedStatus == com.example.data.model.ContentReviewStatus.PENDING_REVIEW ||
+            it.parsedStatus == com.example.data.model.ContentReviewStatus.UNDER_REVIEW
+    }
+    val pendingPublisherAppsCount = state.publisherApplications.count {
+        it.parsedStatus == com.example.data.model.PublisherStatus.PENDING ||
+            it.parsedStatus == com.example.data.model.PublisherStatus.UNDER_REVIEW
+    }
+
+    val tabTitles = listOf(
+        "Overview",
+        if (pendingSubmissionsCount > 0) "Content Review ($pendingSubmissionsCount)" else "Content Review",
+        "Movie Submissions",
+        "TV Show Submissions",
+        "Users",
+        if (pendingPublisherAppsCount > 0) "Publishers ($pendingPublisherAppsCount)" else "Publishers",
+        "Subscriptions",
+        "Plans & Pricing",
+        "Platform Settings",
+        "Audit Log"
+    )
+
     Scaffold(
         containerColor = VeloraBackground,
         floatingActionButton = {
-            if (selectedTab == 1) {
+            if (selectedTab == 8 && platformSubTab == 1) {
                 FloatingActionButton(
                     onClick = { createMediaType = "movie" },
                     containerColor = VeloraCrimson,
@@ -170,7 +224,7 @@ fun AdminDashboardScreen(
                 ) {
                     Icon(Icons.Filled.Add, contentDescription = "Add Movie or TV Show")
                 }
-            } else if (selectedTab == 2) {
+            } else if (selectedTab == 8 && platformSubTab == 2) {
                 FloatingActionButton(
                     onClick = { showAddGenreDialog = true },
                     containerColor = VeloraCrimson,
@@ -201,16 +255,27 @@ fun AdminDashboardScreen(
                     ) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = VeloraOnBackground)
                     }
-                    Text("Admin Console", style = MaterialTheme.typography.headlineMedium, color = VeloraOnBackground)
+                    Column {
+                        Text(
+                            text = if (state.actorRole.isOwner) "Owner & Admin Console" else "Admin Console",
+                            style = MaterialTheme.typography.headlineSmall,
+                            color = VeloraOnBackground
+                        )
+                        Text(
+                            text = if (state.actorRole.isOwner) "Full Owner Governance & Content Moderation" else "Content Moderation & Platform Administration",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = if (state.actorRole.isOwner) VeloraGold else VeloraOnSurfaceMuted
+                        )
+                    }
                 }
-                TextButton(onClick = onSeedCatalog) {
+                TextButton(onClick = actions.onSeedCatalog) {
                     Icon(Icons.Filled.CloudSync, contentDescription = null, tint = VeloraGold, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Sync Seed", color = VeloraGold)
                 }
             }
 
-            if (!adminErrorMessage.isNullOrBlank()) {
+            if (!state.adminErrorMessage.isNullOrBlank()) {
                 Surface(
                     color = VeloraError.copy(alpha = 0.14f),
                     shape = RoundedCornerShape(10.dp),
@@ -221,7 +286,7 @@ fun AdminDashboardScreen(
                         .testTag("admin_error_banner")
                 ) {
                     Text(
-                        text = adminErrorMessage,
+                        text = state.adminErrorMessage,
                         style = MaterialTheme.typography.bodySmall,
                         color = VeloraError,
                         modifier = Modifier.padding(12.dp)
@@ -229,12 +294,13 @@ fun AdminDashboardScreen(
                 }
             }
 
-            TabRow(
-                selectedTabIndex = selectedTab.coerceIn(0, 5),
+            androidx.compose.material3.ScrollableTabRow(
+                selectedTabIndex = selectedTab.coerceIn(0, tabTitles.lastIndex),
                 containerColor = VeloraBackground,
                 contentColor = VeloraOnBackground,
+                edgePadding = 12.dp,
                 indicator = { positions ->
-                    val activePos = positions.getOrNull(selectedTab.coerceIn(0, 5))
+                    val activePos = positions.getOrNull(selectedTab.coerceIn(0, tabTitles.lastIndex))
                     if (activePos != null) {
                         TabRowDefaults.SecondaryIndicator(
                             modifier = Modifier.tabIndicatorOffset(activePos),
@@ -243,329 +309,88 @@ fun AdminDashboardScreen(
                     }
                 }
             ) {
-                Tab(selected = selectedTab == 0, onClick = { selectedTab = 0 }, text = { Text("Stats", maxLines = 1) })
-                Tab(selected = selectedTab == 1, onClick = { selectedTab = 1 }, text = { Text("Catalog", maxLines = 1) })
-                Tab(selected = selectedTab == 2, onClick = { selectedTab = 2 }, text = { Text("Genres", maxLines = 1) })
-                Tab(selected = selectedTab == 3, onClick = { selectedTab = 3 }, text = { Text("Users", maxLines = 1) })
-                Tab(selected = selectedTab == 4, onClick = { selectedTab = 4 }, text = { Text("Plans", maxLines = 1) })
-                Tab(selected = selectedTab == 5, onClick = { selectedTab = 5 }, text = { Text("Home", maxLines = 1) })
+                tabTitles.forEachIndexed { idx, title ->
+                    Tab(
+                        selected = selectedTab == idx,
+                        onClick = { selectedTab = idx },
+                        text = { Text(title, maxLines = 1) }
+                    )
+                }
             }
 
             when (selectedTab) {
-                0 -> {
-                    val movieCount = catalog.count { !it.isSeries }
-                    val seriesCount = catalog.count { it.isSeries }
-                    val featuredCount = catalog.count { it.isFeatured }
-                    val visibleCount = catalog.count { it.isVisible }
-
-                    LazyColumn(
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        item {
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                                StatCard("Total Movies", movieCount.toString(), Modifier.weight(1f))
-                                StatCard("TV Series", seriesCount.toString(), Modifier.weight(1f))
-                            }
-                        }
-                        item {
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                                StatCard("Featured Hero", featuredCount.toString(), Modifier.weight(1f))
-                                StatCard("Visible Titles", "$visibleCount/${catalog.size}", Modifier.weight(1f))
-                            }
-                        }
-                        item {
-                            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
-                                StatCard("Active Genres", genres.count { it.isActive }.toString(), Modifier.weight(1f))
-                                StatCard("Users", users.size.coerceAtLeast(1).toString(), Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-                1 -> {
-                    LazyColumn(
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        item {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(10.dp)
-                            ) {
-                                Button(
-                                    onClick = { createMediaType = "movie" },
-                                    colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("admin_add_movie_button")
-                                ) {
-                                    Icon(Icons.Filled.Movie, contentDescription = null, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Add Movie")
-                                }
-                                OutlinedButton(
-                                    onClick = {
-                                        onPrepareSeriesEditor(null)
-                                        createMediaType = "series"
-                                    },
-                                    border = BorderStroke(1.dp, VeloraCrimson),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .testTag("admin_add_series_button")
-                                ) {
-                                    Icon(Icons.Filled.LiveTv, contentDescription = null, tint = VeloraCrimson, modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.width(6.dp))
-                                    Text("Add TV Show", color = VeloraCrimson)
-                                }
-                            }
-                        }
-
-                        itemsIndexed(catalog, key = { idx, item -> "${item.id.ifBlank { "cat" }}_$idx" }) { _, item ->
-                            val resolvedSummary = remember(item.id, item.videoUrl, item.hlsUrl, item.videoSourceType, item.providerName) {
-                                VideoSourceUtils.resolveForPlayback(
-                                    item.preferredStreamUrl,
-                                    item.videoSourceType,
-                                    item.providerName
-                                )
-                            }
-                            val badgeText = item.providerName?.takeIf { it.isNotBlank() }
-                                ?: resolvedSummary.providerName?.takeIf { it.isNotBlank() }
-                                ?: VideoSourceType.fromKey(item.videoSourceType).label
-                            Surface(
-                                color = VeloraSurfaceElevated,
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, VeloraOutline)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(14.dp),
-                                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth(),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                            Text(item.title, style = MaterialTheme.typography.titleMedium, color = VeloraOnBackground)
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Text(
-                                                    text = "${if (item.isSeries) "TV Show" else "Movie"} • ${item.releaseYear} • ${item.ageRating}",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = VeloraOnSurfaceMuted
-                                                )
-                                                Surface(
-                                                    color = VeloraCoral.copy(alpha = 0.16f),
-                                                    shape = RoundedCornerShape(6.dp)
-                                                ) {
-                                                    Text(
-                                                        text = badgeText,
-                                                        style = MaterialTheme.typography.labelSmall,
-                                                        color = VeloraCoral,
-                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                                    )
-                                                }
-                                                if (item.isComingSoon) {
-                                                    Surface(
-                                                        color = VeloraGold.copy(alpha = 0.2f),
-                                                        shape = RoundedCornerShape(6.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = "SOON",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = VeloraGold,
-                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
-                                                if (item.isStaffPick) {
-                                                    Surface(
-                                                        color = VeloraMatchGreen.copy(alpha = 0.18f),
-                                                        shape = RoundedCornerShape(6.dp)
-                                                    ) {
-                                                        Text(
-                                                            text = "STAFF PICK",
-                                                            style = MaterialTheme.typography.labelSmall,
-                                                            color = VeloraMatchGreen,
-                                                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-                                                        )
-                                                    }
-                                                }
-                                            }
-                                        }
-                                        Row {
-                                            IconButton(onClick = {
-                                                onSaveCatalogItem(item.copy(isFeatured = !item.isFeatured)) {}
-                                            }) {
-                                                Icon(
-                                                    Icons.Filled.Star,
-                                                    contentDescription = "Feature on home",
-                                                    tint = if (item.isFeatured) VeloraGold else VeloraOnSurfaceMuted
-                                                )
-                                            }
-                                            IconButton(onClick = {
-                                                onSaveCatalogItem(item.copy(isVisible = !item.isVisible)) {}
-                                            }) {
-                                                Icon(
-                                                    imageVector = if (item.isVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff,
-                                                    contentDescription = "Toggle visibility",
-                                                    tint = if (item.isVisible) VeloraMatchGreen else VeloraError
-                                                )
-                                            }
-                                            IconButton(onClick = {
-                                                if (item.isSeries) {
-                                                    onPrepareSeriesEditor(item.id)
-                                                }
-                                                editingItem = item
-                                            }) {
-                                                Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = VeloraOnBackground)
-                                            }
-                                            IconButton(onClick = { onDeleteCatalogItem(item.id, item.title) }) {
-                                                Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = VeloraError)
-                                            }
-                                        }
-                                    }
-                                    if (item.isSeries) {
-                                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                            OutlinedButton(
-                                                onClick = {
-                                                    onPrepareSeriesEditor(item.id)
-                                                    editingItem = item
-                                                },
-                                                border = BorderStroke(1.dp, VeloraOutline)
-                                            ) {
-                                                Text("Manage Seasons & Episodes", color = VeloraOnBackground)
-                                            }
-                                            OutlinedButton(
-                                                onClick = { managingSeries = item },
-                                                border = BorderStroke(1.dp, VeloraOutline)
-                                            ) {
-                                                Text("Quick Add Ep", color = VeloraGold)
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                2 -> {
-                    LazyColumn(
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        itemsIndexed(genres, key = { idx, genre -> "${genre.id.ifBlank { "genre" }}_$idx" }) { _, genre ->
-                            Surface(
-                                color = VeloraSurfaceElevated,
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, VeloraOutline)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(14.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column {
-                                        Text(genre.name, style = MaterialTheme.typography.titleMedium, color = VeloraOnBackground)
-                                        Text("Order: ${genre.displayOrder} • ${if (genre.isActive) "Active" else "Hidden"}", style = MaterialTheme.typography.bodySmall, color = VeloraOnSurfaceMuted)
-                                    }
-                                    Row {
-                                        Switch(
-                                            checked = genre.isActive,
-                                            onCheckedChange = { onSaveGenre(genre.copy(isActive = it)) }
-                                        )
-                                        IconButton(onClick = { onDeleteGenre(genre.id) }) {
-                                            Icon(Icons.Filled.Delete, contentDescription = "Delete genre", tint = VeloraError)
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                3 -> {
-                    LazyColumn(
-                        contentPadding = PaddingValues(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        itemsIndexed(
-                            users,
-                            key = { idx, user -> "${user.id.ifBlank { user.userId }.ifBlank { "user" }}_$idx" }
-                        ) { _, user ->
-                            val resolvedUid = user.userId.ifBlank { user.id }
-                            val primaryName = user.displayName.ifBlank {
-                                user.email.ifBlank { user.phoneNumber?.ifBlank { null } ?: resolvedUid.ifBlank { "Notflix User" } }
-                            }
-                            val secondaryIdentifier = user.email.ifBlank {
-                                user.phoneNumber?.ifBlank { null } ?: resolvedUid.ifBlank { "Account ID unavailable" }
-                            }
-                            val normalizedRole = user.role.ifBlank { "member" }
-                            Surface(
-                                color = VeloraSurfaceElevated,
-                                shape = RoundedCornerShape(12.dp),
-                                border = BorderStroke(1.dp, VeloraOutline)
-                            ) {
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .padding(14.dp),
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Column(Modifier.weight(1f)) {
-                                        Text(primaryName, style = MaterialTheme.typography.titleMedium, color = VeloraOnBackground)
-                                        Text(
-                                            secondaryIdentifier,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = VeloraOnSurfaceMuted
-                                        )
-                                    }
-                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                        Text(
-                                            text = normalizedRole.uppercase(),
-                                            style = MaterialTheme.typography.labelMedium,
-                                            color = if (normalizedRole == "admin") VeloraGold else VeloraOnSurfaceMuted
-                                        )
-                                        Switch(
-                                            checked = normalizedRole == "admin",
-                                            enabled = resolvedUid.isNotBlank(),
-                                            onCheckedChange = { onToggleUserAdmin(user, it) }
-                                        )
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                4 -> {
-                    AdminSubscriptionArchitectureTab(
-                        plans = subscriptionPlans,
-                        userSubscriptions = userSubscriptions,
-                        onSyncSchemas = onSyncSubscriptionSchemas
-                    )
-                }
-                5 -> {
-                    AdminHomepageTab(
-                        catalog = catalog,
-                        genres = genres,
-                        homepageSettings = homepageSettings,
-                        homepageRowRules = homepageRowRules,
-                        onSaveHomepageSettings = onSaveHomepageSettings,
-                        onSaveHomepageRowRules = onSaveHomepageRowRules,
-                        onResetHomepageLayout = onResetHomepageLayout,
-                        onSaveCatalogItem = onSaveCatalogItem,
-                        onAddComingSoonTitle = {
-                            createAsComingSoon = true
-                            createMediaType = "movie"
-                        }
-                    )
-                }
+                0 -> AdminOverviewTab(
+                    state = state,
+                    pendingSubmissionsCount = pendingSubmissionsCount,
+                    pendingPublisherAppsCount = pendingPublisherAppsCount,
+                    onOpenReviewQueue = { selectedTab = 1 }
+                )
+                1 -> AdminContentReviewTab(
+                    submissions = state.submissions,
+                    mediaTypeFilter = null,
+                    isSaving = state.isSavingCatalog,
+                    observeReviewHistory = actions.observeReviewHistory,
+                    onReviewSubmission = actions.onReviewSubmission
+                )
+                2 -> AdminContentReviewTab(
+                    submissions = state.submissions,
+                    mediaTypeFilter = "movies",
+                    isSaving = state.isSavingCatalog,
+                    observeReviewHistory = actions.observeReviewHistory,
+                    onReviewSubmission = actions.onReviewSubmission
+                )
+                3 -> AdminContentReviewTab(
+                    submissions = state.submissions,
+                    mediaTypeFilter = "series",
+                    isSaving = state.isSavingCatalog,
+                    observeReviewHistory = actions.observeReviewHistory,
+                    onReviewSubmission = actions.onReviewSubmission
+                )
+                4 -> AdminUserManagementTab(
+                    actorRole = state.actorRole,
+                    users = state.users,
+                    onAssignRole = actions.onAssignUserRole,
+                    onToggleSuspended = actions.onToggleUserSuspended
+                )
+                5 -> AdminPublisherManagementTab(
+                    applications = state.publisherApplications,
+                    users = state.users,
+                    onReviewApplication = actions.onReviewPublisherApplication,
+                    onUpdatePublisherStatus = actions.onUpdatePublisherStatus
+                )
+                6 -> AdminUserSubscriptionsTab(
+                    users = state.users,
+                    plans = state.subscriptionPlans,
+                    userSubscriptions = state.userSubscriptions,
+                    onAssignPlan = actions.onAssignUserSubscription,
+                    onUpdateStatus = actions.onUpdateUserSubscriptionStatus
+                )
+                7 -> AdminPlanPricingTab(
+                    plans = state.subscriptionPlans,
+                    onSyncSchemas = actions.onSyncSubscriptionSchemas,
+                    onSavePlan = actions.onSaveSubscriptionPlan,
+                    onArchivePlan = actions.onArchiveSubscriptionPlan
+                )
+                8 -> AdminPlatformSettingsTab(
+                    state = state,
+                    actions = actions,
+                    platformSubTab = platformSubTab,
+                    onSelectPlatformSubTab = { platformSubTab = it },
+                    onStartCreateMovie = { comingSoon ->
+                        createAsComingSoon = comingSoon
+                        createMediaType = "movie"
+                    },
+                    onStartCreateSeries = {
+                        actions.onPrepareSeriesEditor(null)
+                        createMediaType = "series"
+                    },
+                    onEditItem = { item ->
+                        if (item.isSeries) actions.onPrepareSeriesEditor(item.id)
+                        editingItem = item
+                    },
+                    onQuickManageSeries = { managingSeries = it }
+                )
+                9 -> AdminAuditLogTab(auditLogs = state.auditLogs)
             }
         }
     }
@@ -576,30 +401,30 @@ fun AdminDashboardScreen(
             initial = activeEditing,
             initialMediaType = activeEditing?.mediaType ?: (createMediaType ?: "movie"),
             initialIsComingSoon = activeEditing == null && createAsComingSoon,
-            availableGenres = genres,
-            loadedSeriesSeasons = loadedSeriesSeasons,
-            isLoadingSeriesSeasons = isLoadingSeriesSeasons,
-            isSaving = isSavingCatalog,
-            mediaUploadStates = mediaUploadStates,
-            onUploadMedia = onUploadMedia,
-            onClearUploadState = onClearUploadState,
+            availableGenres = state.genres,
+            loadedSeriesSeasons = state.loadedSeriesSeasons,
+            isLoadingSeriesSeasons = state.isLoadingSeriesSeasons,
+            isSaving = state.isSavingCatalog,
+            mediaUploadStates = state.mediaUploadStates,
+            onUploadMedia = actions.onUploadMedia,
+            onClearUploadState = actions.onClearUploadState,
             onDismiss = {
-                onClearUploadState?.invoke(null)
+                actions.onClearUploadState?.invoke(null)
                 createMediaType = null
                 createAsComingSoon = false
                 editingItem = null
             },
             onSaveMovie = { itemToSave ->
-                onSaveCatalogItem(itemToSave) {
-                    onClearUploadState?.invoke(null)
+                actions.onSaveCatalogItem(itemToSave) {
+                    actions.onClearUploadState?.invoke(null)
                     createMediaType = null
                     createAsComingSoon = false
                     editingItem = null
                 }
             },
             onSaveSeries = { series, seasonDrafts, removedSeasonIds, removedEpisodeRefs ->
-                onSaveSeriesWithSeasons(series, seasonDrafts, removedSeasonIds, removedEpisodeRefs) {
-                    onClearUploadState?.invoke(null)
+                actions.onSaveSeriesWithSeasons(series, seasonDrafts, removedSeasonIds, removedEpisodeRefs) {
+                    actions.onClearUploadState?.invoke(null)
                     createMediaType = null
                     createAsComingSoon = false
                     editingItem = null
@@ -612,8 +437,8 @@ fun AdminDashboardScreen(
         SeriesEpisodeManagerDialog(
             series = series,
             onDismiss = { managingSeries = null },
-            onAddSeason = { season -> onAddSeason(series.id, season) },
-            onAddEpisode = { seasonId, ep -> onAddEpisode(series.id, seasonId, ep) }
+            onAddSeason = { season -> actions.onAddSeason(series.id, season) },
+            onAddEpisode = { seasonId, ep -> actions.onAddEpisode(series.id, seasonId, ep) }
         )
     }
 
@@ -634,7 +459,7 @@ fun AdminDashboardScreen(
                 Button(
                     onClick = {
                         if (name.isNotBlank()) {
-                            onSaveGenre(Genre(name = name.trim(), slug = name.trim(), displayOrder = order.toIntOrNull() ?: 9, isActive = true))
+                            actions.onSaveGenre(Genre(name = name.trim(), slug = name.trim(), displayOrder = order.toIntOrNull() ?: 9, isActive = true))
                             showAddGenreDialog = false
                         }
                     },
@@ -649,19 +474,15 @@ fun AdminDashboardScreen(
 }
 
 @Composable
-private fun AdminSubscriptionArchitectureTab(
-    plans: List<SubscriptionPlan>,
-    userSubscriptions: List<UserSubscription>,
-    onSyncSchemas: () -> Unit
+private fun AdminOverviewTab(
+    state: AdminDashboardState,
+    pendingSubmissionsCount: Int,
+    pendingPublisherAppsCount: Int,
+    onOpenReviewQueue: () -> Unit
 ) {
-    val upcomingAdminControls = listOf(
-        "Create & Edit Subscription Tiers",
-        "Set Monthly & Yearly Prices",
-        "Configure Per-Plan Feature Flags",
-        "Set Viewing Quality & Simultaneous Stream Limits",
-        "Enable or Disable Future Paid Tiers",
-        "Assign Plans to Specific Users"
-    )
+    val movieCount = state.catalog.count { !it.isSeries }
+    val seriesCount = state.catalog.count { it.isSeries }
+    val visibleCount = state.catalog.count { it.isVisible }
 
     LazyColumn(
         contentPadding = PaddingValues(16.dp),
@@ -669,183 +490,243 @@ private fun AdminSubscriptionArchitectureTab(
     ) {
         item {
             Surface(
-                color = VeloraMatchGreen.copy(alpha = 0.12f),
+                color = VeloraCrimson.copy(alpha = 0.14f),
                 shape = RoundedCornerShape(14.dp),
-                border = BorderStroke(1.dp, VeloraMatchGreen.copy(alpha = 0.35f))
+                border = BorderStroke(1.dp, VeloraCrimson.copy(alpha = 0.45f))
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(14.dp),
+                        .padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.Verified, contentDescription = null, tint = VeloraMatchGreen)
-                            Text(
-                                text = "Free-First Architecture",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = VeloraOnBackground
-                            )
-                        }
-                        OutlinedButton(
-                            onClick = onSyncSchemas,
-                            border = BorderStroke(1.dp, VeloraMatchGreen.copy(alpha = 0.5f))
-                        ) {
-                            Text("Sync Schemas", color = VeloraMatchGreen)
-                        }
-                    }
                     Text(
-                        text = "Notflix launches 100% free with every user enrolled in the permanent Free plan. Paid plans, pricing, and billing remain disabled until activated by admins.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = VeloraOnSurfaceMuted
-                    )
-                }
-            }
-        }
-
-        item {
-            Text(
-                text = "Prepared Tier Schemas (${plans.size})",
-                style = MaterialTheme.typography.titleMedium,
-                color = VeloraOnBackground
-            )
-        }
-
-        itemsIndexed(plans, key = { idx, plan -> "${plan.id.ifBlank { plan.tierCode }.ifBlank { "plan" }}_$idx" }) { _, plan ->
-            Surface(
-                color = VeloraSurfaceElevated,
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(
-                    1.dp,
-                    if (plan.isPermanentFree) VeloraMatchGreen.copy(alpha = 0.5f) else VeloraOutline
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = plan.name,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = VeloraOnBackground
-                        )
-                        Surface(
-                            color = if (plan.isPermanentFree) VeloraMatchGreen.copy(alpha = 0.16f) else VeloraGold.copy(alpha = 0.16f),
-                            shape = RoundedCornerShape(8.dp)
-                        ) {
-                            Text(
-                                text = if (plan.isPermanentFree) "PERMANENT • ACTIVE" else "COMING SOON • INACTIVE",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = if (plan.isPermanentFree) VeloraMatchGreen else VeloraGold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
-                        }
-                    }
-                    Text(
-                        text = plan.description,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = VeloraOnSurfaceMuted
-                    )
-                    Text(
-                        text = "Quality Limit: ${plan.maxQuality} • Streams: ${plan.maxSimultaneousStreams} • Profiles: ${plan.maxProfiles}",
-                        style = MaterialTheme.typography.labelMedium,
+                        text = "Content Review Queue: $pendingSubmissionsCount Pending",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                         color = VeloraOnBackground
                     )
+                    Text(
+                        text = "Review and approve or reject Publisher submissions before they become publicly visible on Notflix.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = VeloraOnSurfaceMuted
+                    )
+                    Button(
+                        onClick = onOpenReviewQueue,
+                        colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson),
+                        modifier = Modifier.testTag("admin_overview_open_review_button")
+                    ) {
+                        Text("Open Content Review Queue")
+                    }
                 }
             }
         }
-
         item {
-            Surface(
-                color = VeloraSurfaceElevated,
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, VeloraOutline)
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                StatCard("Pending Reviews", pendingSubmissionsCount.toString(), Modifier.weight(1f))
+                StatCard("Publisher Apps", pendingPublisherAppsCount.toString(), Modifier.weight(1f))
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                StatCard("Live Movies", movieCount.toString(), Modifier.weight(1f))
+                StatCard("Live TV Shows", seriesCount.toString(), Modifier.weight(1f))
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                StatCard("Visible Titles", "$visibleCount/${state.catalog.size}", Modifier.weight(1f))
+                StatCard("Users", state.users.size.coerceAtLeast(1).toString(), Modifier.weight(1f))
+            }
+        }
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                StatCard("Free Access", if (state.platformSettings.freeAccessEnabled) "ON" else "OFF", Modifier.weight(1f))
+                StatCard("Audit Entries", state.auditLogs.size.toString(), Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun AdminPlatformSettingsTab(
+    state: AdminDashboardState,
+    actions: AdminDashboardActions,
+    platformSubTab: Int,
+    onSelectPlatformSubTab: (Int) -> Unit,
+    onStartCreateMovie: (comingSoon: Boolean) -> Unit,
+    onStartCreateSeries: () -> Unit,
+    onEditItem: (CatalogItem) -> Unit,
+    onQuickManageSeries: (CatalogItem) -> Unit
+) {
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            listOf("Free Access & Home", "Live Catalog", "Genres").forEachIndexed { idx, label ->
+                androidx.compose.material3.FilterChip(
+                    selected = platformSubTab == idx,
+                    onClick = { onSelectPlatformSubTab(idx) },
+                    label = { Text(label) }
+                )
+            }
+        }
+
+        when (platformSubTab) {
+            0 -> Column(modifier = Modifier.fillMaxSize()) {
+                Box(modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)) {
+                    AdminPlatformFreeAccessCard(
+                        platformSettings = state.platformSettings,
+                        onToggleFreeAccess = actions.onToggleFreeAccess
+                    )
+                }
+                AdminHomepageTab(
+                    catalog = state.catalog,
+                    genres = state.genres,
+                    homepageSettings = state.homepageSettings,
+                    homepageRowRules = state.homepageRowRules,
+                    onSaveHomepageSettings = actions.onSaveHomepageSettings,
+                    onSaveHomepageRowRules = actions.onSaveHomepageRowRules,
+                    onResetHomepageLayout = actions.onResetHomepageLayout,
+                    onSaveCatalogItem = actions.onSaveCatalogItem,
+                    onAddComingSoonTitle = { onStartCreateMovie(true) }
+                )
+            }
+            1 -> LazyColumn(
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                item {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        Text(
-                            text = "Admin Subscription Controls",
-                            style = MaterialTheme.typography.titleMedium,
-                            color = VeloraOnBackground
-                        )
-                        Surface(
-                            color = VeloraGold.copy(alpha = 0.18f),
-                            shape = RoundedCornerShape(8.dp)
+                        Button(
+                            onClick = { onStartCreateMovie(false) },
+                            colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("admin_add_movie_button")
                         ) {
-                            Text(
-                                text = "COMING SOON",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = VeloraGold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
-                            )
+                            Icon(Icons.Filled.Movie, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Add Movie")
+                        }
+                        OutlinedButton(
+                            onClick = onStartCreateSeries,
+                            border = BorderStroke(1.dp, VeloraCrimson),
+                            modifier = Modifier
+                                .weight(1f)
+                                .testTag("admin_add_series_button")
+                        ) {
+                            Icon(Icons.Filled.LiveTv, contentDescription = null, tint = VeloraCrimson, modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.width(6.dp))
+                            Text("Add TV Show", color = VeloraCrimson)
                         }
                     }
-                    upcomingAdminControls.forEach { capability ->
-                        Text(
-                            text = "• $capability",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = VeloraOnSurfaceMuted
+                }
+                itemsIndexed(state.catalog, key = { idx, item -> "${item.id.ifBlank { "cat" }}_$idx" }) { _, item ->
+                    val resolvedSummary = remember(item.id, item.videoUrl, item.hlsUrl, item.videoSourceType, item.providerName) {
+                        VideoSourceUtils.resolveForPlayback(
+                            item.preferredStreamUrl,
+                            item.videoSourceType,
+                            item.providerName
                         )
+                    }
+                    val badgeText = item.providerName?.takeIf { it.isNotBlank() }
+                        ?: resolvedSummary.providerName?.takeIf { it.isNotBlank() }
+                        ?: VideoSourceType.fromKey(item.videoSourceType).label
+                    Surface(
+                        color = VeloraSurfaceElevated,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, VeloraOutline)
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    Text(item.title, style = MaterialTheme.typography.titleMedium, color = VeloraOnBackground)
+                                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                        Text(
+                                            text = "${if (item.isSeries) "TV Show" else "Movie"} • ${item.releaseYear} • ${item.ageRating}",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = VeloraOnSurfaceMuted
+                                        )
+                                        Surface(color = VeloraCoral.copy(alpha = 0.16f), shape = RoundedCornerShape(6.dp)) {
+                                            Text(badgeText, style = MaterialTheme.typography.labelSmall, color = VeloraCoral, modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp))
+                                        }
+                                    }
+                                }
+                                Row {
+                                    IconButton(onClick = { actions.onSaveCatalogItem(item.copy(isFeatured = !item.isFeatured)) {} }) {
+                                        Icon(Icons.Filled.Star, contentDescription = "Feature on home", tint = if (item.isFeatured) VeloraGold else VeloraOnSurfaceMuted)
+                                    }
+                                    IconButton(onClick = { actions.onSaveCatalogItem(item.copy(isVisible = !item.isVisible)) {} }) {
+                                        Icon(if (item.isVisible) Icons.Filled.Visibility else Icons.Filled.VisibilityOff, contentDescription = "Toggle visibility", tint = if (item.isVisible) VeloraMatchGreen else VeloraError)
+                                    }
+                                    IconButton(onClick = { onEditItem(item) }) {
+                                        Icon(Icons.Filled.Edit, contentDescription = "Edit", tint = VeloraOnBackground)
+                                    }
+                                    IconButton(onClick = { actions.onDeleteCatalogItem(item.id, item.title) }) {
+                                        Icon(Icons.Filled.Delete, contentDescription = "Delete", tint = VeloraError)
+                                    }
+                                }
+                            }
+                            if (item.isSeries) {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = { onEditItem(item) },
+                                        border = BorderStroke(1.dp, VeloraOutline)
+                                    ) { Text("Manage Seasons & Episodes", color = VeloraOnBackground) }
+                                    OutlinedButton(
+                                        onClick = { onQuickManageSeries(item) },
+                                        border = BorderStroke(1.dp, VeloraOutline)
+                                    ) { Text("Quick Add Ep", color = VeloraGold) }
+                                }
+                            }
+                        }
                     }
                 }
             }
-        }
-
-        item {
-            Text(
-                text = "Enrolled User Subscriptions (${userSubscriptions.size})",
-                style = MaterialTheme.typography.titleMedium,
-                color = VeloraOnBackground
-            )
-        }
-
-        itemsIndexed(userSubscriptions, key = { idx, sub -> "${sub.userId.ifBlank { "sub" }}_$idx" }) { _, sub ->
-            Surface(
-                color = VeloraSurfaceElevated,
-                shape = RoundedCornerShape(12.dp),
-                border = BorderStroke(1.dp, VeloraOutline)
+            else -> LazyColumn(
+                contentPadding = PaddingValues(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(sub.userId.ifBlank { sub.id.ifBlank { "Member" } }, style = MaterialTheme.typography.bodyMedium, color = VeloraOnBackground)
-                        Text(
-                            text = "Assigned by ${sub.assignedBy.ifBlank { "system" }} • ${if (sub.expiresAt == null) "No expiration" else "Scheduled end"}",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = VeloraOnSurfaceMuted
-                        )
+                itemsIndexed(state.genres, key = { idx, genre -> "${genre.id.ifBlank { "genre" }}_$idx" }) { _, genre ->
+                    Surface(
+                        color = VeloraSurfaceElevated,
+                        shape = RoundedCornerShape(12.dp),
+                        border = BorderStroke(1.dp, VeloraOutline)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(14.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(genre.name, style = MaterialTheme.typography.titleMedium, color = VeloraOnBackground)
+                                Text("Order: ${genre.displayOrder} • ${if (genre.isActive) "Active" else "Hidden"}", style = MaterialTheme.typography.bodySmall, color = VeloraOnSurfaceMuted)
+                            }
+                            Row {
+                                Switch(checked = genre.isActive, onCheckedChange = { actions.onSaveGenre(genre.copy(isActive = it)) })
+                                IconButton(onClick = { actions.onDeleteGenre(genre.id) }) {
+                                    Icon(Icons.Filled.Delete, contentDescription = "Delete genre", tint = VeloraError)
+                                }
+                            }
+                        }
                     }
-                    Text(
-                        text = "${sub.planName.ifBlank { "Free" }.uppercase()} • ${sub.status.ifBlank { "active" }.uppercase()}",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = VeloraMatchGreen
-                    )
                 }
             }
         }

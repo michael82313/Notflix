@@ -20,6 +20,9 @@ sealed interface VeloraRoute {
     data object Admin : VeloraRoute
 
     @Serializable
+    data object PublisherDashboard : VeloraRoute
+
+    @Serializable
     data class Details(val contentId: String) : VeloraRoute
 
     @Serializable

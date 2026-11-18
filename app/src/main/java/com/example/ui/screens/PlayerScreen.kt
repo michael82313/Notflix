@@ -442,26 +442,75 @@ private fun YouTubePlayerHost(
         }
 
         if (ytError != null) {
-            Box(
+            Surface(
+                color = VeloraSurfaceElevated.copy(alpha = 0.95f),
+                shape = RoundedCornerShape(16.dp),
+                border = BorderStroke(1.dp, VeloraOutline),
                 modifier = Modifier
-                    .fillMaxSize()
-                    .background(Color.Black.copy(alpha = 0.78f))
-                    .padding(24.dp),
-                contentAlignment = Alignment.Center
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 14.dp)
+                    .widthIn(max = 560.dp)
+                    .fillMaxWidth()
+                    .testTag("youtube_error_banner")
             ) {
-                PlaybackErrorCard(
-                    title = "YouTube Playback Unavailable",
-                    message = ytError!!,
-                    sourceBadge = "YouTube Embed",
-                    canRetry = true,
-                    onRetry = {
-                        ytError = null
-                        isLoading = true
-                        reloadToken++
-                    },
-                    onOpenWebsite = if (originalUrl.startsWith("https://")) onOpenWebsite else null,
-                    onBack = onBack
-                )
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.ErrorOutline,
+                            contentDescription = null,
+                            tint = VeloraError,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Text(
+                            text = "YouTube Embedded Playback Notice",
+                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                            color = Color.White,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(onClick = { ytError = null }) {
+                            Text("Dismiss", color = VeloraOnSurfaceMuted)
+                        }
+                    }
+                    Text(
+                        text = ytError!!,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = VeloraOnSurfaceMuted
+                    )
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Button(
+                            onClick = {
+                                ytError = null
+                                isLoading = true
+                                reloadToken++
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson)
+                        ) {
+                            Text("Retry", color = Color.White)
+                        }
+                        if (originalUrl.startsWith("https://")) {
+                            OutlinedButton(onClick = onOpenWebsite) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text("Open on YouTube", color = Color.White)
+                            }
+                        }
+                    }
+                }
             }
         }
 

@@ -125,77 +125,81 @@ fun AdminCatalogEditorDialog(
         removedEpisodeRefs: List<Pair<String, String>>
     ) -> Unit
 ) {
-    var mediaType by remember(initial?.id, initialMediaType) {
-        mutableStateOf(initial?.mediaType ?: initialMediaType)
+    val initialId = initial?.id
+    val seed = remember(initialId, initialMediaType, initialIsComingSoon) {
+        initial ?: CatalogItem(
+            mediaType = initialMediaType,
+            releaseYear = 2026,
+            runtimeMinutes = if (initialMediaType == "series") 45 else 110,
+            ageRating = "PG-13",
+            director = "Notflix Studios",
+            genres = listOf("Drama"),
+            isFeatured = false,
+            isVisible = true,
+            isKidsFriendly = false,
+            isStaffPick = false,
+            isAwardWinning = false,
+            isComingSoon = initialIsComingSoon
+        )
     }
-    var title by remember(initial?.id) { mutableStateOf(initial?.title ?: "") }
-    var synopsis by remember(initial?.id) { mutableStateOf(initial?.synopsis ?: "") }
-    var releaseYear by remember(initial?.id) { mutableStateOf((initial?.releaseYear ?: 2026).toString()) }
-    var runtime by remember(initial?.id) {
-        mutableStateOf((initial?.runtimeMinutes ?: if (mediaType == "series") 45 else 110).toString())
-    }
-    var ageRating by remember(initial?.id) { mutableStateOf(initial?.ageRating ?: "PG-13") }
-    var director by remember(initial?.id) { mutableStateOf(initial?.director ?: "Notflix Studios") }
-    var castText by remember(initial?.id) { mutableStateOf(initial?.cast?.joinToString(", ") ?: "") }
+
+    var mediaType by remember(initialId, initialMediaType) { mutableStateOf(seed.mediaType) }
+    var title by remember(initialId) { mutableStateOf(seed.title) }
+    var synopsis by remember(initialId) { mutableStateOf(seed.synopsis) }
+    var releaseYear by remember(initialId) { mutableStateOf(seed.releaseYear.toString()) }
+    var runtime by remember(initialId) { mutableStateOf(seed.runtimeMinutes.toString()) }
+    var ageRating by remember(initialId) { mutableStateOf(seed.ageRating) }
+    var director by remember(initialId) { mutableStateOf(seed.director) }
+    var castText by remember(initialId) { mutableStateOf(seed.cast.joinToString(", ")) }
 
     val knownGenreNames = remember(availableGenres) {
         availableGenres.map { it.name }.ifEmpty {
             listOf("Action", "Sci-Fi", "Drama", "Thriller", "Comedy", "Animation", "Documentary")
         }
     }
-    val initialGenres = remember(initial?.id) {
-        initial?.genres?.takeIf { it.isNotEmpty() } ?: listOf("Drama")
-    }
-    var selectedGenres by remember(initial?.id) {
+    val initialGenres = remember(initialId) { seed.genres.ifEmpty { listOf("Drama") } }
+    var selectedGenres by remember(initialId) {
         mutableStateOf(initialGenres.filter { g -> knownGenreNames.any { it.equals(g, ignoreCase = true) } }.toSet())
     }
-    var customGenresText by remember(initial?.id) {
+    var customGenresText by remember(initialId) {
         mutableStateOf(
             initialGenres.filter { g -> knownGenreNames.none { it.equals(g, ignoreCase = true) } }
                 .joinToString(", ")
         )
     }
 
-    var posterUrl by remember(initial?.id) { mutableStateOf(initial?.posterUrl ?: "") }
-    var backdropUrl by remember(initial?.id) { mutableStateOf(initial?.backdropUrl ?: "") }
-    var trailerUrl by remember(initial?.id) { mutableStateOf(initial?.trailerUrl ?: "") }
+    var posterUrl by remember(initialId) { mutableStateOf(seed.posterUrl.orEmpty()) }
+    var backdropUrl by remember(initialId) { mutableStateOf(seed.backdropUrl.orEmpty()) }
+    var trailerUrl by remember(initialId) { mutableStateOf(seed.trailerUrl.orEmpty()) }
 
-    val initialSourceType = remember(initial?.id) {
+    val initialSourceType = remember(initialId) {
         if (initial == null) {
             VideoSourceType.AUTO
-        } else if (initial.videoSourceType.isNotBlank()) {
-            VideoSourceType.fromKey(initial.videoSourceType)
+        } else if (seed.videoSourceType.isNotBlank()) {
+            VideoSourceType.fromKey(seed.videoSourceType)
         } else {
-            VideoSourceUtils.detectSourceTypeFromUrl(initial.preferredStreamUrl, VideoSourceType.AUTO)
+            VideoSourceUtils.detectSourceTypeFromUrl(seed.preferredStreamUrl, VideoSourceType.AUTO)
         }
     }
-    var videoSourceType by remember(initial?.id) { mutableStateOf(initialSourceType) }
-    var videoUrl by remember(initial?.id) {
-        mutableStateOf(
-            initial?.preferredStreamUrl ?: ""
-        )
-    }
-    var providerName by remember(initial?.id) {
-        mutableStateOf(initial?.providerName ?: "")
-    }
+    var videoSourceType by remember(initialId) { mutableStateOf(initialSourceType) }
+    var videoUrl by remember(initialId) { mutableStateOf(seed.preferredStreamUrl) }
+    var providerName by remember(initialId) { mutableStateOf(seed.providerName.orEmpty()) }
 
-    var isFeatured by remember(initial?.id) { mutableStateOf(initial?.isFeatured ?: false) }
-    var isVisible by remember(initial?.id) { mutableStateOf(initial?.isVisible ?: true) }
-    var isKidsFriendly by remember(initial?.id) { mutableStateOf(initial?.isKidsFriendly ?: false) }
-    var isStaffPick by remember(initial?.id) { mutableStateOf(initial?.isStaffPick ?: false) }
-    var isAwardWinning by remember(initial?.id) { mutableStateOf(initial?.isAwardWinning ?: false) }
-    var isComingSoon by remember(initial?.id, initialIsComingSoon) {
-        mutableStateOf(initial?.isComingSoon ?: initialIsComingSoon)
-    }
-    var expectedReleaseDate by remember(initial?.id) { mutableStateOf(initial?.expectedReleaseDate ?: "") }
-    var leavingSoonAt by remember(initial?.id) { mutableStateOf(initial?.leavingSoonAt ?: "") }
-    var tagsText by remember(initial?.id) { mutableStateOf(initial?.tags?.joinToString(", ") ?: "") }
-    var keywordsText by remember(initial?.id) { mutableStateOf(initial?.keywords?.joinToString(", ") ?: "") }
+    var isFeatured by remember(initialId) { mutableStateOf(seed.isFeatured) }
+    var isVisible by remember(initialId) { mutableStateOf(seed.isVisible) }
+    var isKidsFriendly by remember(initialId) { mutableStateOf(seed.isKidsFriendly) }
+    var isStaffPick by remember(initialId) { mutableStateOf(seed.isStaffPick) }
+    var isAwardWinning by remember(initialId) { mutableStateOf(seed.isAwardWinning) }
+    var isComingSoon by remember(initialId, initialIsComingSoon) { mutableStateOf(seed.isComingSoon) }
+    var expectedReleaseDate by remember(initialId) { mutableStateOf(seed.expectedReleaseDate.orEmpty()) }
+    var leavingSoonAt by remember(initialId) { mutableStateOf(seed.leavingSoonAt.orEmpty()) }
+    var tagsText by remember(initialId) { mutableStateOf(seed.tags.joinToString(", ")) }
+    var keywordsText by remember(initialId) { mutableStateOf(seed.keywords.joinToString(", ")) }
 
-    val seasonDrafts = remember(initial?.id) { mutableStateListOf<SeasonDraft>() }
-    val removedSeasonIds = remember(initial?.id) { mutableSetOf<String>() }
-    val removedEpisodeRefs = remember(initial?.id) { mutableListOf<Pair<String, String>>() }
-    var initializedFromLoad by remember(initial?.id) { mutableStateOf(false) }
+    val seasonDrafts = remember(initialId) { mutableStateListOf<SeasonDraft>() }
+    val removedSeasonIds = remember(initialId) { mutableSetOf<String>() }
+    val removedEpisodeRefs = remember(initialId) { mutableListOf<Pair<String, String>>() }
+    var initializedFromLoad by remember(initialId) { mutableStateOf(false) }
 
     LaunchedEffect(loadedSeriesSeasons, isLoadingSeriesSeasons, mediaType) {
         if (mediaType == "series" && !isLoadingSeriesSeasons && !initializedFromLoad) {

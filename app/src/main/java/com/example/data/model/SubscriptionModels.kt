@@ -9,11 +9,14 @@ import com.google.firebase.firestore.ServerTimestamp
 @IgnoreExtraProperties
 data class SubscriptionPlan(
     @DocumentId val id: String = "",
-    val tierCode: String = "free", // free | standard | premium | ultimate
+    val tierCode: String = "free", // free | standard | premium | ultimate | custom
     val name: String = "Free",
     val description: String = "",
     val isPermanentFree: Boolean = false,
     val isActive: Boolean = false,
+    val isPublic: Boolean = isPermanentFree,
+    val isArchived: Boolean = false,
+    val billingInterval: String = if (isPermanentFree) "free" else "monthly", // free | monthly | yearly | custom
     val monthlyPriceCents: Int = 0,
     val yearlyPriceCents: Int = 0,
     val maxQuality: String = "Auto",
@@ -24,18 +27,36 @@ data class SubscriptionPlan(
     @ServerTimestamp val createdAt: Timestamp? = null,
     @ServerTimestamp val updatedAt: Timestamp? = null,
 ) {
+    val isSelectableByViewer: Boolean
+        get() = isActive && isPublic && !isArchived
+
+    fun formattedPriceLabel(): String = when {
+        isPermanentFree || (monthlyPriceCents == 0 && yearlyPriceCents == 0) -> "Free ($0.00)"
+        billingInterval == "yearly" && yearlyPriceCents > 0 ->
+            "$${String.format(java.util.Locale.US, "%.2f", yearlyPriceCents / 100.0)} / yr"
+        monthlyPriceCents > 0 ->
+            "$${String.format(java.util.Locale.US, "%.2f", monthlyPriceCents / 100.0)} / mo"
+        yearlyPriceCents > 0 ->
+            "$${String.format(java.util.Locale.US, "%.2f", yearlyPriceCents / 100.0)} / yr"
+        else -> "Free ($0.00)"
+    }
+
     fun toWriteMap(isCreate: Boolean): Map<String, Any> = buildMap {
-        put("tierCode", tierCode)
-        put("name", name.trim().take(60))
-        put("description", description.trim().take(500))
+        val safeTierCode = tierCode.trim().lowercase().replace(Regex("[^a-z0-9_-]"), "").ifBlank { "custom" }.take(40)
+        put("tierCode", safeTierCode)
+        put("name", name.trim().take(60).ifBlank { "Plan" })
+        put("description", description.trim().take(500).ifBlank { "Notflix subscription plan" })
         put("isPermanentFree", isPermanentFree)
-        put("isActive", if (isPermanentFree) true else isActive)
+        put("isActive", if (isPermanentFree) true else (isActive && !isArchived))
+        put("isPublic", if (isPermanentFree) true else (isPublic && !isArchived))
+        put("isArchived", if (isPermanentFree) false else isArchived)
+        put("billingInterval", if (isPermanentFree) "free" else billingInterval.ifBlank { "monthly" })
         put("monthlyPriceCents", if (isPermanentFree) 0 else monthlyPriceCents.coerceAtLeast(0))
         put("yearlyPriceCents", if (isPermanentFree) 0 else yearlyPriceCents.coerceAtLeast(0))
-        put("maxQuality", maxQuality)
+        put("maxQuality", maxQuality.ifBlank { "Auto" })
         put("maxSimultaneousStreams", maxSimultaneousStreams.coerceIn(1, 20))
         put("maxProfiles", maxProfiles.coerceIn(1, 10))
-        put("featuresSummary", featuresSummary.take(20))
+        put("featuresSummary", featuresSummary.map { it.trim() }.filter { it.isNotBlank() }.take(20))
         put("displayOrder", displayOrder.coerceIn(0, 100))
         if (isCreate) put("createdAt", FieldValue.serverTimestamp())
         put("updatedAt", FieldValue.serverTimestamp())
