@@ -70,6 +70,60 @@ function HttpJsonRequest(method as string, url as string, bodyObj as dynamic, be
     return { ok: false, statusCode: -4, data: invalid, errorMessage: "Unexpected network interruption." }
 end function
 
+function HttpUrlEncodedPost(url as string, params as object, timeoutMs = 15000 as integer) as object
+    transfer = CreateObject("roUrlTransfer")
+    if transfer = invalid
+        return { ok: false, statusCode: -1, data: invalid, errorMessage: "Network client unavailable on device." }
+    end if
+
+    port = CreateObject("roMessagePort")
+    transfer.SetMessagePort(port)
+    transfer.SetUrl(url)
+    transfer.SetCertificatesFile("common:/certs/ca-bundle.crt")
+    transfer.InitClientCertificates()
+    transfer.EnableEncodings(true)
+    transfer.RetainBodyOnError(true)
+    transfer.AddHeader("Accept", "application/json")
+    transfer.AddHeader("Content-Type", "application/x-www-form-urlencoded")
+
+    queryString = ""
+    for each key in params
+        if queryString <> "" then queryString = queryString + "&"
+        queryString = queryString + transfer.Escape(key) + "=" + transfer.Escape(SafeStr(params[key]))
+    end for
+
+    print "[NotflixAuth] Sending form-urlencoded POST to: "; url
+    started = transfer.AsyncPostFromString(queryString)
+    if not started
+        return { ok: false, statusCode: -2, data: invalid, errorMessage: "Unable to connect. Please check your internet connection." }
+    end if
+
+    msg = wait(timeoutMs, port)
+    if msg = invalid
+        transfer.AsyncCancel()
+        return { ok: false, statusCode: -3, data: invalid, errorMessage: "Request timed out. Your connection may be slow or offline." }
+    end if
+
+    if Type(msg) = "roUrlEvent"
+        code = msg.GetResponseCode()
+        rawBody = msg.GetString()
+        parsed = invalid
+        if rawBody <> invalid and rawBody <> ""
+            parsed = ParseJson(rawBody)
+        end if
+        print "[NotflixAuth] Form POST HTTP response code: "; code
+        if code >= 200 and code < 300
+            return { ok: true, statusCode: code, data: parsed, rawBody: rawBody, errorMessage: "" }
+        else
+            errText = ExtractFirebaseError(parsed, code, msg.GetFailureReason())
+            print "[NotflixAuth] Form POST failed with error: "; errText
+            return { ok: false, statusCode: code, data: parsed, rawBody: rawBody, errorMessage: errText }
+        end if
+    end if
+
+    return { ok: false, statusCode: -4, data: invalid, errorMessage: "Unexpected network interruption." }
+end function
+
 function ExtractFirebaseError(parsed as dynamic, statusCode as integer, fallbackReason as string) as string
     if parsed <> invalid and Type(parsed) = "roAssociativeArray"
         if parsed.error <> invalid and Type(parsed.error) = "roAssociativeArray"

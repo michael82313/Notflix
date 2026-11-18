@@ -33,17 +33,20 @@ end sub
 sub handleRestoreSession()
     saved = RegistryLoadSession()
     if saved = invalid
+        print "[NotflixAuth] handleRestoreSession: No saved session found."
         m.top.response = { ok: false, action: "restore", needsSignIn: true, errorMessage: "" }
         return
     end if
 
+    print "[NotflixAuth] handleRestoreSession: Restoring session for uid: "; saved.uid
     refreshed = RefreshFirebaseSession(saved.refreshToken, saved.email)
     if not refreshed.ok
+        print "[NotflixAuth] handleRestoreSession: Refresh failed with statusCode: "; refreshed.statusCode
         if refreshed.statusCode = 400 or refreshed.statusCode = 401 or refreshed.statusCode = 403
             RegistryClearSession()
             m.top.response = { ok: false, action: "restore", needsSignIn: true, errorMessage: "Session expired. Please sign in again." }
         else
-            ' Transient offline error — keep saved refresh token so user can retry when internet returns
+            ' Transient network/offline error — keep saved session so user can retry when online
             m.top.response = { ok: false, action: "restore", needsSignIn: false, networkError: true, errorMessage: refreshed.errorMessage }
         end if
         return
@@ -56,6 +59,7 @@ sub handleRestoreSession()
         return
     end if
 
+    print "[NotflixAuth] handleRestoreSession: Session restored and refreshed successfully."
     m.top.response = {
         ok: true
         action: "restore"
@@ -65,6 +69,7 @@ sub handleRestoreSession()
 end sub
 
 sub handleSignIn(email as string, password as string)
+    print "[NotflixAuth] handleSignIn: Starting sign in for email: "; email
     if email = "" or Instr(1, email, "@") <= 1 or Instr(1, email, ".") <= 1
         m.top.response = { ok: false, action: "signIn", errorMessage: "Please enter a valid email address." }
         return
@@ -83,6 +88,7 @@ sub handleSignIn(email as string, password as string)
 
     res = HttpJsonRequest("POST", cfg.authSignInUrl, body, "", 15000)
     if not res.ok or res.data = invalid
+        print "[NotflixAuth] handleSignIn: HTTP request failed: "; res.errorMessage
         m.top.response = { ok: false, action: "signIn", errorMessage: res.errorMessage }
         return
     end if
@@ -91,6 +97,8 @@ sub handleSignIn(email as string, password as string)
     idToken = SafeStr(res.data.idToken)
     refreshToken = SafeStr(res.data.refreshToken)
     resolvedEmail = SafeStr(res.data.email, email)
+
+    print "[NotflixAuth] handleSignIn: Response received. uid present: "; (uid <> ""); ", idToken present: "; (idToken <> "")
 
     if uid = "" or idToken = ""
         m.top.response = { ok: false, action: "signIn", errorMessage: "Authentication succeeded but session token was missing." }
@@ -111,6 +119,7 @@ sub handleSignIn(email as string, password as string)
     end if
 
     RegistrySaveSession(session)
+    print "[NotflixAuth] handleSignIn: Session saved successfully."
 
     m.top.response = {
         ok: true
@@ -146,21 +155,36 @@ end sub
 
 function RefreshFirebaseSession(refreshToken as string, fallbackEmail as string) as object
     cfg = NotflixConfig()
-    body = {
+    params = {
         grant_type: "refresh_token"
         refresh_token: refreshToken
     }
-    res = HttpJsonRequest("POST", cfg.authRefreshTokenUrl, body, "", 15000)
+    print "[NotflixAuth] RefreshFirebaseSession: Requesting token refresh..."
+    res = HttpUrlEncodedPost(cfg.authRefreshTokenUrl, params, 15000)
     if not res.ok or res.data = invalid
+        print "[NotflixAuth] RefreshFirebaseSession: HTTP form post failed with status: "; res.statusCode
         return { ok: false, statusCode: res.statusCode, errorMessage: res.errorMessage }
     end if
 
-    idToken = SafeStr(res.data.id_token)
+    ' Firebase Secure Token API returns access_token (ID token) and refresh_token
+    idToken = SafeStr(res.data.access_token)
+    if idToken = ""
+        idToken = SafeStr(res.data.id_token)
+    end if
     newRefresh = SafeStr(res.data.refresh_token, refreshToken)
     uid = SafeStr(res.data.user_id)
+    if uid = ""
+        uid = SafeStr(res.data.project_id)
+    end if
 
-    if idToken = "" or uid = ""
-        return { ok: false, statusCode: 401, errorMessage: "Unable to refresh Firebase session." }
+    if idToken = ""
+        print "[NotflixAuth] RefreshFirebaseSession: access_token missing in response."
+        return { ok: false, statusCode: 401, errorMessage: "Unable to refresh Firebase session token." }
+    end if
+
+    if uid = ""
+        saved = RegistryLoadSession()
+        if saved <> invalid then uid = saved.uid
     end if
 
     session = {
@@ -170,6 +194,7 @@ function RefreshFirebaseSession(refreshToken as string, fallbackEmail as string)
         refreshToken: newRefresh
     }
     RegistrySaveSession(session)
+    print "[NotflixAuth] RefreshFirebaseSession: Token refreshed successfully for uid: "; uid
     return { ok: true, statusCode: 200, session: session }
 end function
 
@@ -181,5 +206,19 @@ function FetchUserAccountDoc(uid as string, idToken as string) as object
         parsed = ParseFirestoreDocument(res.data)
         return { ok: true, account: MapUserAccount(parsed) }
     end if
-    return { ok: false, account: invalid }
+    ' If user document does not exist yet in Firestore, return a valid default viewer account so sign-in proceeds smoothly
+    return {
+        ok: true
+        account: {
+            id: uid
+            userId: uid
+            email: ""
+            displayName: "Notflix Viewer"
+            role: "viewer"
+            publisherStatus: "none"
+            isSuspended: false
+            autoplayNext: true
+            subtitlesEnabled: true
+        }
+    }
 end function

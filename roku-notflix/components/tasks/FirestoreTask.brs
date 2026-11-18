@@ -65,19 +65,28 @@ end function
 
 function TryRefreshTokenInTask() as boolean
     cfg = NotflixConfig()
-    body = {
+    params = {
         grant_type: "refresh_token"
         refresh_token: m.curSession.refreshToken
     }
-    res = HttpJsonRequest("POST", cfg.authRefreshTokenUrl, body, "", 12000)
-    if res.ok and res.data <> invalid and SafeStr(res.data.id_token) <> ""
-        m.curSession.idToken = SafeStr(res.data.id_token)
-        if SafeStr(res.data.refresh_token) <> ""
-            m.curSession.refreshToken = SafeStr(res.data.refresh_token)
+    print "[Firestore] Token expired (HTTP 401). Attempting refresh via HttpUrlEncodedPost..."
+    res = HttpUrlEncodedPost(cfg.authRefreshTokenUrl, params, 12000)
+    if res.ok and res.data <> invalid
+        newToken = SafeStr(res.data.access_token)
+        if newToken = ""
+            newToken = SafeStr(res.data.id_token)
         end if
-        RegistrySaveSession(m.curSession)
-        return true
+        if newToken <> ""
+            m.curSession.idToken = newToken
+            if SafeStr(res.data.refresh_token) <> ""
+                m.curSession.refreshToken = SafeStr(res.data.refresh_token)
+            end if
+            RegistrySaveSession(m.curSession)
+            print "[Firestore] Token refresh in task succeeded."
+            return true
+        end if
     end if
+    print "[Firestore] Token refresh in task failed."
     return false
 end function
 
