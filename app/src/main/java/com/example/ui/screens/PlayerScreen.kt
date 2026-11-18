@@ -100,7 +100,9 @@ import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.TrackSelectionParameters
 import androidx.media3.common.util.UnstableApi
+import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
+import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
 import androidx.media3.ui.PlayerView
 import com.example.data.model.Episode
 import com.example.ui.components.HostedEmbedWebPlayer
@@ -113,6 +115,9 @@ import com.example.ui.theme.VeloraOnSurfaceMuted
 import com.example.ui.theme.VeloraOutline
 import com.example.ui.theme.VeloraSurfaceElevated
 import com.example.util.DetectedSourceKind
+import com.example.util.PlaybackFailureCategory
+import com.example.util.PlaybackSourceResolver
+import com.example.util.ResolvedPlaybackSource
 import com.example.util.VideoSourceType
 import com.example.util.VideoSourceUtils
 import kotlinx.coroutines.delay
@@ -142,8 +147,35 @@ fun PlayerScreen(
     val context = LocalContext.current
     val activity = context as? Activity
 
-    val resolvedSource = remember(streamUrl, streamSourceType, streamProviderName) {
+    val staticResolved = remember(streamUrl, streamSourceType, streamProviderName) {
         VideoSourceUtils.resolveForPlayback(streamUrl, streamSourceType, streamProviderName)
+    }
+    var resolveRetryToken by remember(streamUrl, streamSourceType, streamProviderName) { mutableIntStateOf(0) }
+    var isResolvingSource by remember(streamUrl, streamSourceType, streamProviderName, resolveRetryToken) {
+        mutableStateOf(staticResolved.validationError == null && staticResolved.detectedKind != DetectedSourceKind.UNSUPPORTED)
+    }
+    var resolvedSource by remember(streamUrl, streamSourceType, streamProviderName, resolveRetryToken) {
+        mutableStateOf<ResolvedPlaybackSource>(staticResolved)
+    }
+    var forceEmbedFallback by remember(streamUrl, streamSourceType, streamProviderName, resolveRetryToken) {
+        mutableStateOf(false)
+    }
+
+    // Centralized async multi-source resolution (probes headers, redirects, Google Drive, DASH/HLS MIME, YouTube oEmbed)
+    LaunchedEffect(streamUrl, streamSourceType, streamProviderName, resolveRetryToken) {
+        if (staticResolved.validationError != null || staticResolved.detectedKind == DetectedSourceKind.UNSUPPORTED) {
+            resolvedSource = staticResolved
+            isResolvingSource = false
+            return@LaunchedEffect
+        }
+        isResolvingSource = true
+        val probed = PlaybackSourceResolver.resolve(
+            rawUrl = streamUrl,
+            declaredType = streamSourceType,
+            providerName = streamProviderName
+        )
+        resolvedSource = probed
+        isResolvingSource = false
     }
 
     var isFullscreen by remember { mutableStateOf(false) }
@@ -183,10 +215,54 @@ fun PlayerScreen(
         }
     }
 
-    // Source validation failure or unsupported URL UI
-    if (resolvedSource.validationError != null || resolvedSource.detectedKind == DetectedSourceKind.UNSUPPORTED) {
-        val canOpenOriginal = resolvedSource.originalUrl.startsWith("https://") ||
-            resolvedSource.originalUrl.startsWith("http://")
+    // Checking / Resolving video source headers & redirects
+    if (isResolvingSource) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black)
+                .statusBarsPadding()
+                .navigationBarsPadding()
+                .padding(24.dp)
+        ) {
+            IconButton(
+                onClick = onBack,
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .testTag("player_back_button")
+            ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = Color.White)
+            }
+            Column(
+                modifier = Modifier.align(Alignment.Center),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                CircularProgressIndicator(color = VeloraCrimson)
+                Text(
+                    text = "Preparing ${staticResolved.providerName ?: "video"} source...",
+                    style = MaterialTheme.typography.titleMedium,
+                    color = VeloraOnBackground
+                )
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = VeloraOnSurfaceMuted,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        return
+    }
+
+    val activeSource = resolvedSource
+
+    // Source validation failure, network probe failure, Drive access restriction, or unsupported URL UI
+    if (activeSource.validationError != null || activeSource.detectedKind == DetectedSourceKind.UNSUPPORTED) {
+        val canOpenOriginal = activeSource.originalUrl.startsWith("https://") ||
+            activeSource.originalUrl.startsWith("http://")
+        val canRetryProbe = activeSource.failureCategory != PlaybackFailureCategory.INVALID_URL
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -197,31 +273,34 @@ fun PlayerScreen(
             contentAlignment = Alignment.Center
         ) {
             PlaybackErrorCard(
-                title = "Playback Unavailable",
-                message = resolvedSource.validationError ?: "Unsupported video source.",
-                sourceBadge = resolvedSource.providerName ?: resolvedSource.sourceType.label,
-                canRetry = false,
-                onRetry = {},
+                title = activeSource.failureCategory?.title ?: "Playback Unavailable",
+                message = activeSource.validationError ?: "Unsupported video source.",
+                sourceBadge = activeSource.providerName ?: activeSource.sourceType.label,
+                canRetry = canRetryProbe,
+                onRetry = { resolveRetryToken++ },
                 onOpenWebsite = if (canOpenOriginal) {
-                    { openExternalWebsite(context, resolvedSource.originalUrl) }
+                    { openExternalWebsite(context, activeSource.originalUrl) }
                 } else null,
+                openWebsiteLabel = activeSource.openExternallyLabel,
                 onBack = onBack
             )
         }
         return
     }
 
-    // Ordinary webpage: do NOT treat as a direct video file; explain why & offer Open Website
-    if (resolvedSource.detectedKind == DetectedSourceKind.ORDINARY_WEBPAGE) {
+    // Ordinary webpage (e.g., Flystream or HTML portal without direct video stream or official embed API)
+    if (activeSource.detectedKind == DetectedSourceKind.ORDINARY_WEBPAGE) {
         OrdinaryWebpageViewingCard(
             title = title,
             subtitleLabel = subtitleLabel,
-            providerName = resolvedSource.providerName ?: "External Website",
-            explanation = resolvedSource.infoMessage
+            providerName = activeSource.providerName ?: "External Website",
+            explanation = activeSource.infoMessage
                 ?: "This source points to an ordinary webpage rather than a direct video stream or supported embedded player.",
-            targetUrl = resolvedSource.originalUrl,
+            targetUrl = activeSource.originalUrl,
+            openWebsiteLabel = activeSource.openExternallyLabel,
             nextEpisode = nextEpisode,
-            onOpenWebsite = { openExternalWebsite(context, resolvedSource.originalUrl) },
+            onRetry = { resolveRetryToken++ },
+            onOpenWebsite = { openExternalWebsite(context, activeSource.originalUrl) },
             onPlayNextEpisode = onPlayNextEpisode,
             onBack = onBack
         )
@@ -229,12 +308,12 @@ fun PlayerScreen(
     }
 
     // YouTube official IFrame Player API
-    if (resolvedSource.youtubeVideoId != null) {
+    if (activeSource.youtubeVideoId != null) {
         YouTubePlayerHost(
             title = title,
             subtitleLabel = subtitleLabel,
-            videoId = resolvedSource.youtubeVideoId,
-            originalUrl = resolvedSource.originalUrl,
+            videoId = activeSource.youtubeVideoId,
+            originalUrl = activeSource.originalUrl,
             initialPositionMs = initialPositionMs,
             autoplayNext = autoplayNext,
             isFullscreen = isFullscreen,
@@ -244,25 +323,28 @@ fun PlayerScreen(
             onSaveProgress = onSaveProgress,
             onTriggerNextCountdown = { nextEpisodeCountdown = 5 },
             onCancelNextCountdown = { nextEpisodeCountdown = -1 },
-            onOpenWebsite = { openExternalWebsite(context, resolvedSource.originalUrl) },
+            onOpenWebsite = { openExternalWebsite(context, activeSource.originalUrl) },
             onPlayNextEpisode = onPlayNextEpisode,
             onBack = onBack
         )
         return
     }
 
-    // Compatible external host official embedded player (Vimeo, Dailymotion, Twitch, Google Drive /preview, etc.)
-    if (resolvedSource.detectedKind == DetectedSourceKind.SUPPORTED_EMBED && !resolvedSource.embedUrl.isNullOrBlank()) {
+    // Compatible external host official embedded player (Vimeo, Dailymotion, Twitch, Google Drive /preview fallback, etc.)
+    if ((forceEmbedFallback || activeSource.detectedKind == DetectedSourceKind.SUPPORTED_EMBED) &&
+        !activeSource.embedUrl.isNullOrBlank()
+    ) {
         HostedEmbedPlayerHost(
             title = title,
             subtitleLabel = subtitleLabel,
-            providerName = resolvedSource.providerName ?: "Embedded Player",
-            embedUrl = resolvedSource.embedUrl,
-            originalUrl = resolvedSource.originalUrl,
+            providerName = activeSource.providerName ?: "Embedded Player",
+            embedUrl = activeSource.embedUrl,
+            originalUrl = activeSource.originalUrl,
+            openWebsiteLabel = activeSource.openExternallyLabel,
             isFullscreen = isFullscreen,
             nextEpisode = nextEpisode,
             onToggleFullscreen = { isFullscreen = !isFullscreen },
-            onOpenWebsite = { openExternalWebsite(context, resolvedSource.originalUrl) },
+            onOpenWebsite = { openExternalWebsite(context, activeSource.originalUrl) },
             onPlayNextEpisode = onPlayNextEpisode,
             onBack = onBack
         )
@@ -272,8 +354,16 @@ fun PlayerScreen(
     ExoDirectVideoPlayerHost(
         title = title,
         subtitleLabel = subtitleLabel,
-        streamUrl = resolvedSource.url,
-        sourceType = resolvedSource.sourceType,
+        streamUrl = activeSource.url,
+        originalUrl = activeSource.originalUrl,
+        sourceType = activeSource.sourceType,
+        resolvedMimeType = activeSource.mimeType,
+        providerName = activeSource.providerName,
+        openWebsiteLabel = activeSource.openExternallyLabel,
+        fallbackEmbedUrl = activeSource.embedUrl,
+        onSwitchToFallbackEmbed = if (!activeSource.embedUrl.isNullOrBlank()) {
+            { forceEmbedFallback = true }
+        } else null,
         initialPositionMs = initialPositionMs,
         defaultQuality = defaultQuality,
         defaultSubtitlesEnabled = defaultSubtitlesEnabled,
@@ -285,7 +375,7 @@ fun PlayerScreen(
         onSaveProgress = onSaveProgress,
         onTriggerNextCountdown = { nextEpisodeCountdown = 5 },
         onCancelNextCountdown = { nextEpisodeCountdown = -1 },
-        onOpenWebsite = { openExternalWebsite(context, resolvedSource.originalUrl) },
+        onOpenWebsite = { openExternalWebsite(context, activeSource.originalUrl) },
         onPlayNextEpisode = onPlayNextEpisode,
         onBack = onBack
     )
@@ -536,6 +626,7 @@ private fun HostedEmbedPlayerHost(
     providerName: String,
     embedUrl: String,
     originalUrl: String,
+    openWebsiteLabel: String = "Open Website",
     isFullscreen: Boolean,
     nextEpisode: Episode?,
     onToggleFullscreen: () -> Unit,
@@ -628,7 +719,7 @@ private fun HostedEmbedPlayerHost(
                     ) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Filled.OpenInNew,
-                            contentDescription = "Open Website",
+                            contentDescription = openWebsiteLabel,
                             tint = Color.White
                         )
                     }
@@ -679,6 +770,7 @@ private fun HostedEmbedPlayerHost(
                         reloadToken++
                     },
                     onOpenWebsite = if (originalUrl.startsWith("https://")) onOpenWebsite else null,
+                    openWebsiteLabel = openWebsiteLabel,
                     onBack = onBack
                 )
             }
@@ -693,7 +785,9 @@ private fun OrdinaryWebpageViewingCard(
     providerName: String,
     explanation: String,
     targetUrl: String,
+    openWebsiteLabel: String = "Open Website",
     nextEpisode: Episode?,
+    onRetry: () -> Unit,
     onOpenWebsite: () -> Unit,
     onPlayNextEpisode: (Episode) -> Unit,
     onBack: () -> Unit
@@ -742,7 +836,7 @@ private fun OrdinaryWebpageViewingCard(
             border = BorderStroke(1.dp, VeloraOutline),
             modifier = Modifier
                 .align(Alignment.Center)
-                .widthIn(max = 480.dp)
+                .widthIn(max = 500.dp)
         ) {
             Column(
                 modifier = Modifier
@@ -762,14 +856,14 @@ private fun OrdinaryWebpageViewingCard(
                     shape = RoundedCornerShape(8.dp)
                 ) {
                     Text(
-                        text = "$providerName • Webpage",
+                        text = "$providerName • Browser Playback",
                         style = MaterialTheme.typography.labelMedium,
                         color = VeloraGold,
                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                     )
                 }
                 Text(
-                    text = "External Webpage Source",
+                    text = "Watch on $providerName",
                     style = MaterialTheme.typography.headlineSmall,
                     color = VeloraOnBackground,
                     textAlign = TextAlign.Center
@@ -789,6 +883,18 @@ private fun OrdinaryWebpageViewingCard(
                     textAlign = TextAlign.Center
                 )
                 Spacer(Modifier.height(4.dp))
+                Button(
+                    onClick = onOpenWebsite,
+                    colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("open_website_button")
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text(openWebsiteLabel, color = Color.White, fontWeight = FontWeight.Bold)
+                }
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
@@ -803,17 +909,15 @@ private fun OrdinaryWebpageViewingCard(
                     ) {
                         Text("Go Back", color = VeloraOnBackground)
                     }
-                    Button(
-                        onClick = onOpenWebsite,
-                        colors = ButtonDefaults.buttonColors(containerColor = VeloraCrimson),
+                    OutlinedButton(
+                        onClick = onRetry,
+                        border = BorderStroke(1.dp, VeloraOutline),
                         modifier = Modifier
                             .weight(1f)
                             .height(48.dp)
-                            .testTag("open_website_button")
+                            .testTag("webpage_retry_button")
                     ) {
-                        Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(6.dp))
-                        Text("Open Website", color = Color.White, fontWeight = FontWeight.Bold)
+                        Text("Retry", color = VeloraOnBackground)
                     }
                 }
             }
@@ -827,7 +931,13 @@ private fun ExoDirectVideoPlayerHost(
     title: String,
     subtitleLabel: String?,
     streamUrl: String,
+    originalUrl: String,
     sourceType: VideoSourceType,
+    resolvedMimeType: String?,
+    providerName: String?,
+    openWebsiteLabel: String,
+    fallbackEmbedUrl: String?,
+    onSwitchToFallbackEmbed: (() -> Unit)?,
     initialPositionMs: Long,
     defaultQuality: String,
     defaultSubtitlesEnabled: Boolean,
@@ -861,20 +971,39 @@ private fun ExoDirectVideoPlayerHost(
     var showTracksDialog by remember { mutableStateOf(false) }
     var selectedAudioLang by remember { mutableStateOf("English (Original)") }
 
-    val exoPlayer = remember(streamUrl, sourceType) {
-        ExoPlayer.Builder(context).build().apply {
-            val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl)
-            if (sourceType == VideoSourceType.HLS || streamUrl.contains(".m3u8", ignoreCase = true)) {
-                mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+    val exoPlayer = remember(streamUrl, sourceType, resolvedMimeType) {
+        val httpFactory = DefaultHttpDataSource.Factory()
+            .setAllowCrossProtocolRedirects(true)
+            .setConnectTimeoutMs(12_000)
+            .setReadTimeoutMs(20_000)
+            .setUserAgent("NotflixAndroid/9.0 (Linux; Android)")
+
+        ExoPlayer.Builder(context)
+            .setMediaSourceFactory(DefaultMediaSourceFactory(httpFactory))
+            .build()
+            .apply {
+                val mediaItemBuilder = MediaItem.Builder().setUri(streamUrl)
+                when {
+                    sourceType == VideoSourceType.HLS ||
+                        streamUrl.contains(".m3u8", ignoreCase = true) ||
+                        resolvedMimeType.equals(MimeTypes.APPLICATION_M3U8, ignoreCase = true) ||
+                        resolvedMimeType.equals("application/x-mpegurl", ignoreCase = true) ->
+                        mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_M3U8)
+                    sourceType == VideoSourceType.DASH ||
+                        streamUrl.contains(".mpd", ignoreCase = true) ||
+                        resolvedMimeType.equals(MimeTypes.APPLICATION_MPD, ignoreCase = true) ->
+                        mediaItemBuilder.setMimeType(MimeTypes.APPLICATION_MPD)
+                    !resolvedMimeType.isNullOrBlank() && resolvedMimeType.startsWith("video/") ->
+                        mediaItemBuilder.setMimeType(resolvedMimeType)
+                }
+                setMediaItem(mediaItemBuilder.build())
+                applyQualityConstraint(this, selectedQuality, subtitlesEnabled)
+                prepare()
+                if (initialPositionMs > 2000L) {
+                    seekTo(initialPositionMs)
+                }
+                playWhenReady = true
             }
-            setMediaItem(mediaItemBuilder.build())
-            applyQualityConstraint(this, selectedQuality, subtitlesEnabled)
-            prepare()
-            if (initialPositionMs > 2000L) {
-                seekTo(initialPositionMs)
-            }
-            playWhenReady = true
-        }
     }
 
     // Track listener + periodic position sync
@@ -1005,7 +1134,7 @@ private fun ExoDirectVideoPlayerHost(
                 PlaybackErrorCard(
                     title = "Playback Unavailable",
                     message = playerError!!,
-                    sourceBadge = sourceType.label,
+                    sourceBadge = providerName ?: sourceType.label,
                     canRetry = true,
                     onRetry = {
                         playerError = null
@@ -1013,7 +1142,12 @@ private fun ExoDirectVideoPlayerHost(
                         exoPlayer.prepare()
                         exoPlayer.play()
                     },
-                    onOpenWebsite = if (streamUrl.startsWith("https://")) onOpenWebsite else null,
+                    onFallbackEmbed = if (!fallbackEmbedUrl.isNullOrBlank() && onSwitchToFallbackEmbed != null) {
+                        onSwitchToFallbackEmbed
+                    } else null,
+                    fallbackEmbedLabel = "Try ${providerName ?: "Provider"} Preview Player",
+                    onOpenWebsite = if (originalUrl.startsWith("https://")) onOpenWebsite else null,
+                    openWebsiteLabel = openWebsiteLabel,
                     onBack = onBack
                 )
             }
@@ -1405,14 +1539,17 @@ private fun PlaybackErrorCard(
     sourceBadge: String,
     canRetry: Boolean,
     onRetry: () -> Unit,
+    onFallbackEmbed: (() -> Unit)? = null,
+    fallbackEmbedLabel: String = "Try Embedded Preview",
     onOpenWebsite: (() -> Unit)? = null,
+    openWebsiteLabel: String = "Open Website",
     onBack: () -> Unit
 ) {
     Surface(
         color = VeloraSurfaceElevated,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, VeloraOutline),
-        modifier = Modifier.widthIn(max = 460.dp)
+        modifier = Modifier.widthIn(max = 480.dp)
     ) {
         Column(
             modifier = Modifier
@@ -1477,6 +1614,18 @@ private fun PlaybackErrorCard(
                     }
                 }
             }
+            if (onFallbackEmbed != null) {
+                OutlinedButton(
+                    onClick = onFallbackEmbed,
+                    border = BorderStroke(1.dp, VeloraCrimson.copy(alpha = 0.7f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(48.dp)
+                        .testTag("player_error_fallback_embed_button")
+                ) {
+                    Text(fallbackEmbedLabel, color = VeloraOnBackground, fontWeight = FontWeight.SemiBold)
+                }
+            }
             if (onOpenWebsite != null) {
                 OutlinedButton(
                     onClick = onOpenWebsite,
@@ -1488,7 +1637,7 @@ private fun PlaybackErrorCard(
                 ) {
                     Icon(Icons.AutoMirrored.Filled.OpenInNew, contentDescription = null, tint = VeloraGold, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(6.dp))
-                    Text("Open Website", color = VeloraGold)
+                    Text(openWebsiteLabel, color = VeloraGold)
                 }
             }
         }
@@ -1550,20 +1699,34 @@ private fun formatPlaybackException(error: PlaybackException, sourceType: VideoS
     return when (error.errorCode) {
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
         PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT ->
-            "Network connection failed while loading this ${sourceType.label} stream. Check your internet connection and retry."
-        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS ->
-            "The video server returned an HTTP error (${error.localizedMessage ?: "403/404"}). Verify the ${sourceType.label} URL is publicly accessible."
+            "Network connection failed while loading this ${sourceType.label} stream. Check your internet connection and tap Retry."
+        PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS -> {
+            val raw = error.localizedMessage.orEmpty()
+            when {
+                raw.contains("401") || raw.contains("403") ->
+                    "Provider requires authentication or denied access (HTTP 401/403). Verify the link is publicly accessible."
+                raw.contains("404") || raw.contains("410") ->
+                    "Video source has been removed or expired (HTTP 404/410)."
+                else ->
+                    "The video server returned an HTTP error (${raw.ifBlank { "access denied or unavailable" }}). Verify the ${sourceType.label} URL is publicly accessible."
+            }
+        }
         PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED ->
             "Cleartext http:// streams are blocked. Update the video source URL to https://."
         PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED,
         PlaybackException.ERROR_CODE_PARSING_MANIFEST_UNSUPPORTED ->
-            "This HLS playlist (.m3u8) appears invalid or uses an unsupported manifest format."
+            if (sourceType == VideoSourceType.DASH) {
+                "This MPEG-DASH manifest (.mpd) is invalid or uses an unsupported format."
+            } else {
+                "This HLS playlist (.m3u8) is invalid or uses an unsupported manifest format."
+            }
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
         PlaybackException.ERROR_CODE_PARSING_CONTAINER_UNSUPPORTED ->
-            "This direct video file could not be parsed. Verify it is an authorized MP4 or HLS stream."
+            "Source is not a playable direct video stream or uses an unsupported container format."
         PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-        PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED ->
-            "This device could not initialize a video decoder for this stream format."
+        PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
+        PlaybackException.ERROR_CODE_DECODING_FAILED ->
+            "Unsupported video codec on this device (${error.errorCodeName}). Re-encode as standard H.264/AAC MP4 or HLS."
         else -> error.localizedMessage?.takeIf { it.isNotBlank() }
             ?: "Unable to play this ${sourceType.label} source (${error.errorCodeName})."
     }

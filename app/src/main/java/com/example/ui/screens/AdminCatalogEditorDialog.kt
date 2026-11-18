@@ -97,9 +97,13 @@ import com.example.ui.theme.VeloraOutline
 import com.example.ui.theme.VeloraSurface
 import com.example.ui.theme.VeloraSurfaceBright
 import com.example.ui.theme.VeloraSurfaceElevated
+import androidx.compose.runtime.rememberCoroutineScope
 import com.example.util.DetectedSourceKind
+import com.example.util.PlaybackSourceResolver
+import com.example.util.ResolvedPlaybackSource
 import com.example.util.VideoSourceType
 import com.example.util.VideoSourceUtils
+import kotlinx.coroutines.launch
 
 private val AGE_RATINGS = listOf("G", "PG", "PG-13", "TV-G", "TV-PG", "TV-14", "TV-MA", "R")
 
@@ -828,7 +832,7 @@ fun AdminCatalogEditorDialog(
                             )
                         } else {
                             Text(
-                                text = "Paste a direct MP4, HLS (.m3u8), official embed/hosting URL (YouTube, Vimeo, Dailymotion, Twitch, Loom, Drive, Archive.org), or webpage link. Edit anytime without recreating the entry.",
+                                text = "Paste a direct MP4/WebM, HLS (.m3u8), DASH (.mpd), Google Drive share link, official embed URL (YouTube, Vimeo, Dailymotion, Twitch, Loom, Archive.org), or CDN redirect link. Use 'Test Playback' below before publishing.",
                                 style = MaterialTheme.typography.bodySmall,
                                 color = VeloraOnSurfaceMuted
                             )
@@ -1447,33 +1451,130 @@ fun SourceValidationBadge(
         return
     }
 
-    val resolved = VideoSourceUtils.resolveForPlayback(trimmed, sourceType.key, customProviderName)
-    val badgeColor = when (resolved.detectedKind) {
-        DetectedSourceKind.ORDINARY_WEBPAGE -> VeloraGold
-        DetectedSourceKind.UNSUPPORTED -> VeloraError
+    val scope = rememberCoroutineScope()
+    var isTesting by remember(trimmed, sourceType, customProviderName) { mutableStateOf(false) }
+    var testedResult by remember(trimmed, sourceType, customProviderName) {
+        mutableStateOf<ResolvedPlaybackSource?>(null)
+    }
+
+    val staticResolved = remember(trimmed, sourceType, customProviderName) {
+        VideoSourceUtils.resolveForPlayback(trimmed, sourceType.key, customProviderName)
+    }
+    val displaySource = testedResult ?: staticResolved
+
+    val isPassed = displaySource.probeVerified &&
+        displaySource.validationError == null &&
+        (displaySource.isDirectlyPlayable || displaySource.hasOfficialEmbed)
+    val isFailed = displaySource.validationError != null ||
+        displaySource.detectedKind == DetectedSourceKind.UNSUPPORTED
+
+    val badgeColor = when {
+        isFailed -> VeloraError
+        displaySource.detectedKind == DetectedSourceKind.ORDINARY_WEBPAGE -> VeloraGold
         else -> VeloraMatchGreen
     }
-    val badgeIcon = when (resolved.detectedKind) {
-        DetectedSourceKind.ORDINARY_WEBPAGE -> Icons.Filled.Info
-        DetectedSourceKind.UNSUPPORTED -> Icons.Filled.ErrorOutline
+    val badgeIcon = when {
+        isFailed -> Icons.Filled.ErrorOutline
+        displaySource.detectedKind == DetectedSourceKind.ORDINARY_WEBPAGE -> Icons.Filled.Info
         else -> Icons.Filled.CheckCircle
     }
-    val detailText = buildString {
-        append(resolved.detectedKind.label)
-        if (!resolved.providerName.isNullOrBlank()) {
-            append(" (${resolved.providerName})")
-        }
-        if (!resolved.infoMessage.isNullOrBlank()) {
-            append(" — ")
-            append(resolved.infoMessage)
-        }
+
+    val testStatusLabel = when {
+        isTesting -> "Testing playback compatibility..."
+        testedResult == null -> "Not tested yet"
+        isPassed -> "Passed"
+        isFailed -> "Failed"
+        else -> "Webpage fallback only"
     }
-    Row(
-        verticalAlignment = Alignment.Top,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+
+    Surface(
+        color = VeloraSurface,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(1.dp, badgeColor.copy(alpha = 0.45f)),
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Icon(badgeIcon, contentDescription = null, tint = badgeColor, modifier = Modifier.padding(top = 2.dp).size(16.dp))
-        Text(detailText, style = MaterialTheme.typography.bodySmall, color = badgeColor)
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(10.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Icon(badgeIcon, contentDescription = null, tint = badgeColor, modifier = Modifier.size(16.dp))
+                Text(
+                    text = "${displaySource.providerName ?: "Auto"} • ${displaySource.detectedKind.label}",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                    color = badgeColor
+                )
+            }
+
+            // Structured compatibility readout for Admin before publishing
+            Text(
+                text = buildString {
+                    append("Direct Playable: ${if (displaySource.isDirectlyPlayable) "Yes" else "No"}")
+                    append("  •  Official Embed: ${if (displaySource.hasOfficialEmbed) "Yes" else "No"}")
+                    append("\nAuth Required: ${if (displaySource.requiresAuthentication) "Yes" else "No"}")
+                    append("  •  Compatibility Test: $testStatusLabel")
+                    if (displaySource.probeVerified && displaySource.isDirectlyPlayable) {
+                        append("\nSeeking / Byte-Ranges: ${if (displaySource.supportsByteRanges) "Supported" else "Not advertised"}")
+                    }
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = VeloraOnSurfaceMuted
+            )
+
+            val summaryLine = displaySource.validationError
+                ?: displaySource.probeSummary
+                ?: displaySource.infoMessage
+            if (!summaryLine.isNullOrBlank()) {
+                Text(
+                    text = summaryLine,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = if (isFailed) VeloraError else badgeColor
+                )
+            }
+
+            OutlinedButton(
+                onClick = {
+                    if (!isTesting) {
+                        isTesting = true
+                        scope.launch {
+                            testedResult = PlaybackSourceResolver.resolve(
+                                rawUrl = trimmed,
+                                declaredType = sourceType.key,
+                                providerName = customProviderName
+                            )
+                            isTesting = false
+                        }
+                    }
+                },
+                enabled = !isTesting,
+                border = BorderStroke(1.dp, VeloraOutline),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(40.dp)
+                    .testTag("admin_test_playback_button")
+            ) {
+                if (isTesting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(16.dp),
+                        strokeWidth = 2.dp,
+                        color = VeloraCrimson
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text("Testing Playback...", color = VeloraOnBackground, style = MaterialTheme.typography.labelMedium)
+                } else {
+                    Text(
+                        text = if (testedResult == null) "Test Playback Compatibility" else "Re-test Playback",
+                        color = VeloraOnBackground,
+                        style = MaterialTheme.typography.labelMedium
+                    )
+                }
+            }
+        }
     }
 }
 
@@ -1707,9 +1808,10 @@ private fun EditorSectionCard(
 
 fun placeholderForSourceType(type: VideoSourceType): String {
     return when (type) {
-        VideoSourceType.AUTO -> "https://youtu.be/..., https://vimeo.com/..., https://.../video.mp4, or .m3u8"
+        VideoSourceType.AUTO -> "https://youtu.be/..., Drive link, .mp4, .m3u8, or .mpd"
         VideoSourceType.EMBED -> "https://vimeo.com/..., https://www.youtube.com/watch?v=..., or embed URL"
         VideoSourceType.MP4 -> "https://example.com/videos/feature.mp4"
         VideoSourceType.HLS -> "https://example.com/streams/master.m3u8"
+        VideoSourceType.DASH -> "https://example.com/streams/manifest.mpd"
     }
 }
